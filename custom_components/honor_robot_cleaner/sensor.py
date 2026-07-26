@@ -13,8 +13,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_NAME, DOMAIN
+from .const import DOMAIN
 from .coordinator import HonorRobotCoordinator
+from .entity import device_info_for_entry, nested_hour, status_bool
 
 
 async def async_setup_entry(
@@ -22,15 +23,11 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: HonorRobotCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator: HonorRobotCoordinator = hass.data[DOMAIN][entry.entry_id][
+        "coordinator"
+    ]
     device_id = entry.data["device_id"]
-    name = entry.data.get(CONF_NAME) or "Honor Robot Cleaner"
-    device_info = {
-        "identifiers": {(DOMAIN, device_id)},
-        "name": name,
-        "manufacturer": "Honor / Grit",
-        "model": entry.data.get("sub_type", "rob-01"),
-    }
+    device_info = device_info_for_entry(entry)
 
     async_add_entities(
         [
@@ -38,6 +35,71 @@ async def async_setup_entry(
             HonorRobotStatusSensor(coordinator, device_id, device_info),
             HonorRobotCleanAreaSensor(coordinator, device_id, device_info),
             HonorRobotCleanTimeSensor(coordinator, device_id, device_info),
+            HonorRobotErrorSensor(coordinator, device_id, device_info),
+            HonorRobotFirmwareSensor(coordinator, device_id, device_info),
+            HonorRobotConnectedSensor(coordinator, device_id, device_info),
+            HonorRobotTextSensor(
+                coordinator,
+                device_id,
+                device_info,
+                key="undisturb_mode",
+                name="Do not disturb status",
+                icon="mdi:minus-circle-outline",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="filter",
+                field="used_hour",
+                key="filter_used",
+                name="Filter used",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="filter",
+                field="left_hour",
+                key="filter_left",
+                name="Filter remaining",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="rolling_brush",
+                field="used_hour",
+                key="main_brush_used",
+                name="Main brush used",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="rolling_brush",
+                field="left_hour",
+                key="main_brush_left",
+                name="Main brush remaining",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="side_brush",
+                field="used_hour",
+                key="side_brush_used",
+                name="Side brush used",
+            ),
+            HonorConsumableSensor(
+                coordinator,
+                device_id,
+                device_info,
+                group="side_brush",
+                field="left_hour",
+                key="side_brush_left",
+                name="Side brush remaining",
+            ),
         ]
     )
 
@@ -114,3 +176,87 @@ class HonorRobotCleanTimeSensor(HonorRobotBaseSensor):
     @property
     def native_value(self):
         return (self.coordinator.data or {}).get("clean_time")
+
+
+class HonorRobotErrorSensor(HonorRobotBaseSensor):
+    _attr_name = "Error"
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, coordinator, device_id, device_info) -> None:
+        super().__init__(coordinator, device_id, device_info, "error_info")
+
+    @property
+    def native_value(self):
+        return (self.coordinator.data or {}).get("error_info") or "none"
+
+
+class HonorRobotFirmwareSensor(HonorRobotBaseSensor):
+    _attr_name = "Firmware"
+    _attr_icon = "mdi:chip"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator, device_id, device_info) -> None:
+        super().__init__(coordinator, device_id, device_info, "firmware")
+
+    @property
+    def native_value(self):
+        return (self.coordinator.data or {}).get("vendor_firmware_version")
+
+
+class HonorRobotConnectedSensor(HonorRobotBaseSensor):
+    _attr_name = "Connected"
+    _attr_icon = "mdi:lan-connect"
+
+    def __init__(self, coordinator, device_id, device_info) -> None:
+        super().__init__(coordinator, device_id, device_info, "connected")
+
+    @property
+    def native_value(self):
+        return "on" if status_bool(self.coordinator.data or {}, "connected") else "off"
+
+
+class HonorRobotTextSensor(HonorRobotBaseSensor):
+    def __init__(
+        self,
+        coordinator,
+        device_id,
+        device_info,
+        *,
+        key: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, device_info, key)
+        self._attr_name = name
+        self._attr_icon = icon
+
+    @property
+    def native_value(self):
+        return (self.coordinator.data or {}).get(self._key)
+
+
+class HonorConsumableSensor(HonorRobotBaseSensor):
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:wrench-clock"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator,
+        device_id,
+        device_info,
+        *,
+        group: str,
+        field: str,
+        key: str,
+        name: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, device_info, key)
+        self._group = group
+        self._field = field
+        self._attr_name = name
+
+    @property
+    def native_value(self):
+        return nested_hour(self.coordinator.data or {}, self._group, self._field)

@@ -107,5 +107,21 @@
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "unknown": "Ошибка: смотри детали ниже / лог Home Assistant."
     }
+  },
+  "services": {
+    "clean_rooms": {
+      "name": "Уборка комнат",
+      "description": "Запустить SelectClean по списку room_id (см. атрибуты камеры карты).",
+      "fields": {
+        "room_ids": {
+          "name": "ID комнат",
+          "description": "Список целочисленных room_id"
+        },
+        "times": {
+          "name": "Повторы",
+          "description": "Сколько раз убирать каждую комнату"
+        }
+      }
+    }
   }
 }

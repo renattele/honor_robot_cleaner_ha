@@ -19,9 +19,12 @@ from .const import (
     AUTH_MODE_TOKEN,
     BUNDLE_ID,
     CLIENT_ID,
+    CMD_CLEAR_MAP,
     CMD_CONTINUE,
     CMD_DOCK,
+    CMD_LOCATE,
     CMD_PAUSE,
+    CMD_SELECT_CLEAN,
     CMD_SPOT,
     CMD_START,
     CMD_STOP,
@@ -552,25 +555,43 @@ class GritApiClient:
         data = payload.get("data") or {}
         return list(data.get("thing_list") or [])
 
-    async def async_send_working_status(self, working_status: str) -> None:
+    async def async_send_state(self, **state: Any) -> None:
+        """Send topic_payload.state fields via send_to_device."""
         await self.async_request(
             {
                 "opt": "send_to_device",
                 "sub_type": self.sub_type,
                 "thing_name": self.device_id,
-                "topic_payload": {"state": {"working_status": working_status}},
+                "topic_payload": {"state": dict(state)},
             }
         )
 
+    async def async_send_working_status(self, working_status: str) -> None:
+        await self.async_send_state(working_status=working_status)
+
     async def async_set_fan_status(self, fan_status: str) -> None:
-        await self.async_request(
-            {
-                "opt": "send_to_device",
-                "sub_type": self.sub_type,
-                "thing_name": self.device_id,
-                "topic_payload": {"state": {"fan_status": fan_status}},
-            }
-        )
+        await self.async_send_state(fan_status=fan_status)
+
+    async def async_set_water_level(self, water_level: str) -> None:
+        await self.async_send_state(water_level=water_level)
+
+    async def async_set_volume(self, volume: int) -> None:
+        await self.async_send_state(volume=int(volume))
+
+    async def async_set_light(self, light_on: bool) -> None:
+        await self.async_send_state(light_on=bool(light_on))
+
+    async def async_set_carpet_fan_boost(self, enabled: bool) -> None:
+        await self.async_send_state(carpet_fan_boost=bool(enabled))
+
+    async def async_set_continue_clean(self, enabled: bool) -> None:
+        await self.async_send_state(continue_clean=bool(enabled))
+
+    async def async_set_undisturb_mode(self, enabled: bool) -> None:
+        await self.async_send_state(undisturb_mode="on" if enabled else "off")
+
+    async def async_set_zone_policy(self, enabled: bool) -> None:
+        await self.async_send_state(zone_policy_enable=bool(enabled))
 
     async def async_start(self) -> None:
         await self.async_send_working_status(CMD_START)
@@ -589,6 +610,55 @@ class GritApiClient:
 
     async def async_spot(self) -> None:
         await self.async_send_working_status(CMD_SPOT)
+
+    async def async_locate(self) -> None:
+        await self.async_send_working_status(CMD_LOCATE)
+
+    async def async_clear_map(self) -> None:
+        await self.async_send_working_status(CMD_CLEAR_MAP)
+
+    async def async_clean_rooms(
+        self, room_ids: list[int], *, times: int = 1
+    ) -> None:
+        zones = [
+            {"room_id": int(rid), "times": int(times)} for rid in room_ids
+        ]
+        await self.async_send_state(
+            working_status=CMD_SELECT_CLEAN,
+            selected_zone=zones,
+        )
+
+    async def async_list_maps(self) -> dict[str, Any]:
+        payload = await self.async_request(
+            {
+                "opt": "reuse_map_list_get",
+                "sub_type": self.sub_type,
+                "thing_name": self.device_id,
+            }
+        )
+        return payload.get("data") or {}
+
+    async def async_get_map(self, map_id: str) -> dict[str, Any]:
+        payload = await self.async_request(
+            {
+                "opt": "reuse_map_get",
+                "sub_type": self.sub_type,
+                "thing_name": self.device_id,
+                "map_id": str(map_id),
+            }
+        )
+        return payload.get("data") or {}
+
+    async def async_enable_map(self, map_id: str, map_name: str = "") -> None:
+        body: dict[str, Any] = {
+            "opt": "reuse_map_enable",
+            "sub_type": self.sub_type,
+            "thing_name": self.device_id,
+            "map_id": str(map_id),
+        }
+        if map_name:
+            body["map_name"] = map_name
+        await self.async_request(body)
 
 
 def parse_plugin_account_token(raw: str) -> dict[str, str]:

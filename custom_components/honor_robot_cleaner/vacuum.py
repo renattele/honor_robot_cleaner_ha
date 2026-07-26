@@ -24,6 +24,8 @@ from .const import (
     ATTR_FAN_STATUS,
     ATTR_FIRMWARE,
     ATTR_LOCAL_IP,
+    ATTR_MAP_ID,
+    ATTR_ROOMS,
     ATTR_WATER_LEVEL,
     ATTR_WIFI_SSID,
     ATTR_WORKING_STATUS,
@@ -43,6 +45,8 @@ SUPPORT = (
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.FAN_SPEED
+    | VacuumEntityFeature.LOCATE
+    | VacuumEntityFeature.CLEAN_SPOT
 )
 
 CLEANING_STATUSES = {
@@ -104,6 +108,7 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
         super().__init__(coordinator)
         self._client = client
         self._entry = entry
+        self._entry_id = entry.entry_id
         name = entry.data.get(CONF_NAME) or "Honor Robot Cleaner"
         self._attr_unique_id = f"{entry.data['device_id']}_vacuum"
         self._attr_device_info = {
@@ -123,6 +128,14 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
         working = status.get("working_status") or "unknown"
         self._attr_battery_level = _as_int(status.get("battery_level"))
         self._attr_fan_speed = status.get("fan_status")
+        map_info: dict[str, Any] = {}
+        if self.hass is not None:
+            map_info = (
+                self.hass.data.get(DOMAIN, {})
+                .get(self._entry_id, {})
+                .get("map")
+                or {}
+            )
         self._attr_extra_state_attributes = {
             ATTR_WORKING_STATUS: working,
             ATTR_ERROR_INFO: status.get("error_info"),
@@ -134,6 +147,8 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
             ATTR_WATER_LEVEL: status.get("water_level"),
             ATTR_FIRMWARE: status.get("vendor_firmware_version"),
             ATTR_CONNECTED: status.get("connected"),
+            ATTR_MAP_ID: map_info.get("map_id") or status.get("hismap_id"),
+            ATTR_ROOMS: map_info.get("rooms") or [],
         }
         self._attr_activity = map_working_status(working)
 
@@ -149,6 +164,12 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
     async def async_return_to_base(self, **kwargs: Any) -> None:
         await self._command(self._client.async_return_to_base)
 
+    async def async_locate(self, **kwargs: Any) -> None:
+        await self._command(self._client.async_locate)
+
+    async def async_clean_spot(self, **kwargs: Any) -> None:
+        await self._command(self._client.async_spot)
+
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         async def _set() -> None:
             await self._client.async_set_fan_status(fan_speed)
@@ -162,7 +183,6 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
             _LOGGER.error("Command failed: %s", err)
             raise
         await self.coordinator.async_request_refresh()
-
 
 def map_working_status(working: str) -> VacuumActivity:
     if working in CLEANING_STATUSES:

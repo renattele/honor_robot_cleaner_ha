@@ -107,5 +107,21 @@
       "invalid_token_format": "Invalid token / plugin_account format",
       "unknown": "Error — see details below / Home Assistant log."
     }
+  },
+  "services": {
+    "clean_rooms": {
+      "name": "Clean rooms",
+      "description": "Start SelectClean for the given room ids (see map camera attributes).",
+      "fields": {
+        "room_ids": {
+          "name": "Room IDs",
+          "description": "List of integer room_id values"
+        },
+        "times": {
+          "name": "Times",
+          "description": "How many times to clean each room"
+        }
+      }
+    }
   }
 }

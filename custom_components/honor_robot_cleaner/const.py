@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "honor_robot_cleaner"
-INTEGRATION_VERSION = "1.3.14"
+INTEGRATION_VERSION = "1.4.0"
 
 CONF_TOKEN = "token"
 CONF_DEVICE_ID = "device_id"
@@ -48,6 +48,9 @@ CMD_CONTINUE = "ContinueClean"
 CMD_STOP = "Standby"
 CMD_DOCK = "BackCharging"
 CMD_SPOT = "SpotClean"
+CMD_LOCATE = "LocationAlarm"
+CMD_CLEAR_MAP = "ClearMap"
+CMD_SELECT_CLEAN = "SelectClean"
 
 FAN_QUIET = "Quiet"
 FAN_NORMAL = "Normal"
@@ -56,6 +59,13 @@ FAN_MAX = "Max"
 FAN_NONE = "None"
 
 FAN_SPEEDS = [FAN_QUIET, FAN_NORMAL, FAN_STRONG, FAN_MAX]
+
+WATER_OFF = "Off"
+WATER_LOW = "Low"
+WATER_DEFAULT = "Default"
+WATER_HIGH = "High"
+WATER_MAX = "Max"
+WATER_LEVELS = [WATER_OFF, WATER_LOW, WATER_DEFAULT, WATER_HIGH, WATER_MAX]
 
 ATTR_WORKING_STATUS = "working_status"
 ATTR_ERROR_INFO = "error_info"
@@ -67,6 +77,13 @@ ATTR_FAN_STATUS = "fan_status"
 ATTR_WATER_LEVEL = "water_level"
 ATTR_FIRMWARE = "firmware"
 ATTR_CONNECTED = "connected"
+ATTR_ROOMS = "rooms"
+ATTR_MAP_ID = "map_id"
+ATTR_VOLUME = "volume"
+
+SERVICE_CLEAN_ROOMS = "clean_rooms"
+ATTR_ROOM_IDS = "room_ids"
+ATTR_TIMES = "times"
 
 # Common calling codes for the UI selector
 CALLING_CODES = {

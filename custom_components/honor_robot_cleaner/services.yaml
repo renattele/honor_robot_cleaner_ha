@@ -1,0 +1,24 @@
+clean_rooms:
+  name: Clean rooms
+  description: Start SelectClean for the given room ids (from map camera attributes).
+  target:
+    entity:
+      domain: vacuum
+      integration: honor_robot_cleaner
+  fields:
+    room_ids:
+      name: Room IDs
+      description: List of integer room_id values
+      required: true
+      example: "[1, 2]"
+      selector:
+        object:
+    times:
+      name: Times
+      description: How many times to clean each room
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
