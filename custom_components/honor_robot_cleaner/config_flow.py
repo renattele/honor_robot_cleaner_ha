@@ -182,7 +182,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._honor_sub_type = (
                 user_input.get(CONF_SUB_TYPE) or DEFAULT_SUB_TYPE
             ).strip()
-            self._device_id = (user_input.get(CONF_DEVICE_ID) or "").strip()
+            # thing_name asked later (honor_device) — Grit needs it only at exchange
             self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
             try:
                 await async_setup_component(self.hass, DOMAIN, {})
@@ -221,7 +221,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
                 error_detail = _error_detail(err)
 
-        suggested_device = self._device_id or _suggest_device_id(self.hass)
         schema = vol.Schema(
             {
                 vol.Required(CONF_ACCOUNT): str,
@@ -230,7 +229,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         type=selector.TextSelectorType.PASSWORD
                     )
                 ),
-                vol.Optional(CONF_DEVICE_ID, default=suggested_device): str,
                 vol.Required(
                     CONF_CALLING_CODE, default=DEFAULT_CALLING_CODE
                 ): selector.SelectSelector(
@@ -599,14 +597,21 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         error_detail = ""
         if user_input is not None:
-            self._device_id = (user_input.get(CONF_DEVICE_ID) or "").strip()
-            if not self._device_id:
+            raw = (user_input.get(CONF_DEVICE_ID) or "").strip()
+            try:
+                self._device_id = _extract_device_id(raw)
+            except ValueError as err:
                 errors["base"] = "invalid_device"
-            elif not self._honor_auth_code:
-                errors["base"] = "invalid_auth"
-                error_detail = "Honor auth_code lost — start Honor login again"
-            else:
-                return await self._async_honor_exchange()
+                error_detail = _error_detail(err)
+                self._device_id = ""
+            if not errors:
+                if not self._device_id:
+                    errors["base"] = "invalid_device"
+                elif not self._honor_auth_code:
+                    errors["base"] = "invalid_auth"
+                    error_detail = "Honor auth_code lost — start Honor login again"
+                else:
+                    return await self._async_honor_exchange()
 
         suggested = self._device_id or _suggest_device_id(self.hass)
         return self.async_show_form(
@@ -652,6 +657,9 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             device = _pick_robot_device(devices, preferred=self._device_id)
             if not device:
                 return self.async_abort(reason="no_devices")
+            # Prefer the cloud thing_name (user may have pasted a token / typo'd id)
+            self._device_id = str(device.get("thing_name") or self._device_id)
+            client.device_id = self._device_id
             self._client = client
             self._session = {
                 **session,
@@ -1146,6 +1154,30 @@ def _suggest_device_id(hass) -> str:
     except Exception:  # noqa: BLE001
         pass
     return ""
+
+
+def _extract_device_id(raw: str) -> str:
+    """Accept bare thing_name or full plugin_account ``device;jwt;region;…`` token."""
+    text = (raw or "").strip().strip('"').strip("'")
+    if not text:
+        return ""
+    if ";" in text:
+        try:
+            parsed = parse_plugin_account_token(text)
+        except ValueError as err:
+            # Maybe user pasted "device_id;something" without full token — take first field
+            first = text.split(";", 1)[0].strip()
+            if len(first) >= 16:
+                return first
+            raise ValueError(f"Invalid plugin_account token: {err}") from err
+        return (parsed.get("device_id") or "").strip()
+    # Bare JWT cannot yield thing_name
+    if text.count(".") == 2 and text.startswith("eyJ"):
+        raise ValueError(
+            "Paste robot thing_name (…bndpiz…) or full plugin_account token, "
+            "not a bare JWT"
+        )
+    return text
 
 
 def _pick_robot_device(

@@ -11,11 +11,10 @@
       },
       "honor": {
         "title": "Honor AI Space login",
-        "description": "Same credentials as Honor ID / AI Space. thing_name (robot device id) is required for Grit honor_card_login — first field of plugin_account token, ends with …bndpiz…. Honor session cookies are stored for automatic JWT refresh.\n\n{error_detail}",
+        "description": "Same credentials as Honor ID / AI Space. After SMS we may ask for the robot id once (Grit honor_card_login needs it).\n\n{error_detail}",
         "data": {
           "account": "Phone",
           "password": "Honor ID password",
-          "device_id": "Robot thing_name (device id)",
           "calling_code": "Country calling code",
           "language": "Language",
           "name": "Name in Home Assistant"
@@ -34,10 +33,10 @@
         }
       },
       "honor_device": {
-        "title": "Robot device id",
-        "description": "Grit needs thing_name for honor_card_login (empty → Put_Table_Error). Paste the robot id (e.g. from plugin_account.xml token, first segment before ';').\n\n{error_detail}",
+        "title": "Robot id",
+        "description": "Grit needs the robot thing_name for the first login (empty → Put_Table_Error). Easiest: paste the full plugin_account token from the phone (device;jwt;region;…) — only the first segment is used. Or paste the id alone (ends with …bndpiz…).\n\n{error_detail}",
         "data": {
-          "device_id": "Robot thing_name"
+          "device_id": "Robot id or plugin_account token"
         }
       },
       "login": {
