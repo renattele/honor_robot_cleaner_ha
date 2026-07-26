@@ -17,18 +17,28 @@
 
 ---
 
-### Установка
+### Установка через HACS
 
-1. **HACS** → Custom repositories → этот репо → *Integration*
-2. Установить → перезапустить Home Assistant
-3. **Настройки → Устройства и службы → Добавить интеграцию**
+1. Открой **HACS** → **Integrations**.
+2. Справа сверху **⋮** → **Custom repositories**.
+3. Вставь URL репозитория:
+
+   `https://git.lxbx.ru/renattele/honor_robot_cleaner_ha`
+
+4. Тип: **Integration** → **Add**.
+5. Найди **Honor Robot Cleaner** → **Download**.
+6. **Перезапусти** Home Assistant.
+7. **Настройки → Устройства и службы → Добавить интеграцию** → **Honor Robot Cleaner**.
 
 <details>
-<summary>Вручную</summary>
+<summary>Установка вручную (без HACS)</summary>
 
-```text
-config/custom_components/honor_robot_cleaner/
-```
+1. Скачай репозиторий и скопируй папку  
+   `custom_components/honor_robot_cleaner`  
+   в каталог Home Assistant:  
+   `config/custom_components/honor_robot_cleaner/`
+2. Перезапусти Home Assistant.
+3. **Настройки → Устройства и службы → Добавить интеграцию** → **Honor Robot Cleaner**.
 
 </details>
 
