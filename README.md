@@ -1,25 +1,53 @@
 # Honor Robot Cleaner
 
 <p align="center">
-  <img src="images/logo.png" alt="Logo" width="96"/>
+  <img src="images/logo.png" alt="Logo" width="112"/>
 </p>
 
-Неофициальная интеграция Home Assistant для роботов-пылесосов **Honor Choice** (R2 Plus) через облако YuGong / Grit.
+<p align="center">
+  <strong>Honor Choice R2 Plus</strong> → Home Assistant<br/>
+  <sub>Неофициальная интеграция через облако YuGong / Grit</sub>
+</p>
 
-## Установка
+<p align="center">
+  <img alt="Home Assistant" src="https://img.shields.io/badge/Home%20Assistant-2024.1%2B-41BDF5?style=flat-square&logo=home-assistant&logoColor=white"/>
+  <img alt="HACS" src="https://img.shields.io/badge/HACS-Custom-0bae58?style=flat-square"/>
+  <img alt="Cloud" src="https://img.shields.io/badge/IoT-Cloud-6c757d?style=flat-square"/>
+</p>
 
-HACS → Custom repositories → этот репозиторий (Integration) → установить → перезапустить HA → **Добавить интеграцию**.
+---
 
-Или скопировать `custom_components/honor_robot_cleaner` в `/config/custom_components/`.
+### Установка
 
-## Настройка
+1. **HACS** → Custom repositories → этот репо → *Integration*
+2. Установить → перезапустить Home Assistant
+3. **Настройки → Устройства и службы → Добавить интеграцию**
 
-Рекомендуется вход через **Honor ID** (телефон + капча + SMS). JWT обновляется сам.
+<details>
+<summary>Вручную</summary>
 
-При необходимости Device ID берётся в AI Space → сведения об устройстве.
+```text
+config/custom_components/honor_robot_cleaner/
+```
 
-## Возможности
+</details>
 
-Vacuum, live-карта (WSS), уборка по комнатам, fan / water / volume / DND, расходники, кнопки перемещения.
+### Настройка
 
-Unofficial. Not affiliated with Honor.
+Вход через **Honor ID** (телефон → капча → SMS). JWT обновляется автоматически.
+
+Device ID при необходимости: AI Space → сведения об устройстве.
+
+### Возможности
+
+- Управление уборкой и возврат на базу  
+- Live-карта по WSS  
+- Уборка по комнатам  
+- Fan / water / volume / DND  
+- Расходники и кнопки перемещения  
+
+---
+
+<p align="center">
+  <sub>Unofficial · not affiliated with Honor</sub>
+</p>
