@@ -6,13 +6,8 @@ import logging
 from typing import Any
 
 from homeassistant.components.vacuum import (
-    STATE_CLEANING,
-    STATE_DOCKED,
-    STATE_ERROR,
-    STATE_IDLE,
-    STATE_PAUSED,
-    STATE_RETURNING,
     StateVacuumEntity,
+    VacuumActivity,
     VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -140,7 +135,7 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
             ATTR_FIRMWARE: status.get("vendor_firmware_version"),
             ATTR_CONNECTED: status.get("connected"),
         }
-        self._attr_state = map_working_status(working)
+        self._attr_activity = map_working_status(working)
 
     async def async_start(self) -> None:
         await self._command(self._client.async_start)
@@ -169,18 +164,18 @@ class HonorRobotVacuum(CoordinatorEntity[HonorRobotCoordinator], StateVacuumEnti
         await self.coordinator.async_request_refresh()
 
 
-def map_working_status(working: str) -> str:
+def map_working_status(working: str) -> VacuumActivity:
     if working in CLEANING_STATUSES:
-        return STATE_CLEANING
+        return VacuumActivity.CLEANING
     if working in RETURNING_STATUSES:
-        return STATE_RETURNING
+        return VacuumActivity.RETURNING
     if working in DOCKED_STATUSES:
-        return STATE_DOCKED
+        return VacuumActivity.DOCKED
     if working in PAUSED_STATUSES:
-        return STATE_PAUSED
+        return VacuumActivity.PAUSED
     if working in ERROR_STATUSES or working.startswith("upgrading_"):
-        return STATE_ERROR
-    return STATE_IDLE
+        return VacuumActivity.ERROR
+    return VacuumActivity.IDLE
 
 
 def _as_int(value: Any) -> int | None:
