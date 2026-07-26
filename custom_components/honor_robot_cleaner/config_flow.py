@@ -161,6 +161,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         errors: dict[str, str] = {}
+        error_detail = ""
         if user_input is not None:
             self._honor_account = user_input[CONF_ACCOUNT].strip()
             self._honor_password = user_input[CONF_PASSWORD]
@@ -203,9 +204,11 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except HonorIdError as err:
                 _LOGGER.warning("Honor bootstrap/captcha failed: %s", err)
                 errors["base"] = _classify_honor_error(err)
-            except Exception:  # noqa: BLE001
+                error_detail = _error_detail(err)
+            except Exception as err:  # noqa: BLE001
                 _LOGGER.exception("Honor setup failed")
                 errors["base"] = "unknown"
+                error_detail = _error_detail(err)
 
         schema = vol.Schema(
             {
@@ -231,7 +234,10 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(
-            step_id="honor", data_schema=schema, errors=errors
+            step_id="honor",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"error_detail": error_detail},
         )
 
     async def async_step_honor_captcha(
