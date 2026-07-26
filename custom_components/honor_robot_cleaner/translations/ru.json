@@ -11,11 +11,10 @@
       },
       "honor": {
         "title": "Вход Honor AI Space",
-        "description": "Те же логин и пароль, что у Honor ID. Для Grit нужен thing_name робота (иначе Put_Table_Error) — первый кусок plugin_account до ';', обычно …bndpiz…. Сессия Honor сохраняется для автообновления JWT.\n\n{error_detail}",
+        "description": "Те же логин и пароль, что у Honor ID. После SMS один раз может понадобиться id робота (так требует Grit honor_card_login).\n\n{error_detail}",
         "data": {
           "account": "Телефон",
           "password": "Пароль Honor ID",
-          "device_id": "thing_name робота (device id)",
           "calling_code": "Код страны",
           "language": "Язык",
           "name": "Имя в Home Assistant"
@@ -34,10 +33,10 @@
         }
       },
       "honor_device": {
-        "title": "ID робота",
-        "description": "Grit требует thing_name для honor_card_login (пустой → Put_Table_Error). Вставь id робота (первый сегмент plugin_account до ';').\n\n{error_detail}",
+        "title": "Id робота",
+        "description": "Grit для первого входа нужен thing_name робота (пустой → Put_Table_Error). Проще всего вставить весь токен plugin_account с телефона (device;jwt;region;…) — возьмём только первый кусок. Или вставь один id (заканчивается на …bndpiz…).\n\n{error_detail}",
         "data": {
-          "device_id": "thing_name робота"
+          "device_id": "Id робота или токен plugin_account"
         }
       },
       "login": {
