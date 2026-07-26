@@ -1,7 +1,7 @@
 # Honor Robot Cleaner
 
 <p align="center">
-  <img src="images/logo.svg" alt="Logo" width="112"/>
+  <img src="images/logo.png" alt="Logo" width="112"/>
 </p>
 
 <p align="center">
