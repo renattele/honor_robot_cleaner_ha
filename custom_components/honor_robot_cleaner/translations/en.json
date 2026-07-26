@@ -3,7 +3,25 @@
     "step": {
       "user": {
         "title": "Honor Robot Cleaner",
-        "description": "Paste JWT token or full plugin_account token string (device;jwt;region;lang;exp;https;wss). Device ID is optional if the full string is used.",
+        "menu_options": {
+          "login": "Sign in with phone / password",
+          "token": "Advanced: paste cloud token"
+        }
+      },
+      "login": {
+        "title": "YuGong / Grit account",
+        "description": "Use the RobotCleaner cloud account (phone without country code, e.g. 9XXXXXXXXX for Russia). Honor AI Space-only accounts that never set a password may need the Robot Sweeper app password or the advanced token option.",
+        "data": {
+          "account": "Phone / email",
+          "password": "Password",
+          "calling_code": "Country calling code",
+          "language": "Language",
+          "name": "Name in Home Assistant"
+        }
+      },
+      "token": {
+        "title": "Cloud token",
+        "description": "Paste JWT or full plugin_account.xml token string (device;jwt;region;lang;exp;https;wss).",
         "data": {
           "token": "Token",
           "device_id": "Device ID (thing_name)",
@@ -12,12 +30,20 @@
           "base_url": "API base URL",
           "sub_type": "Product sub_type"
         }
+      },
+      "device": {
+        "title": "Select robot",
+        "description": "Choose which vacuum to add.",
+        "data": {
+          "device_id": "Device"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Could not reach Grit cloud or device status failed",
-      "invalid_auth": "Token rejected",
+      "cannot_connect": "Could not reach Grit cloud",
+      "invalid_auth": "Invalid account or password",
       "invalid_token_format": "Invalid token / plugin_account format",
+      "no_devices": "No robots found on this account",
       "unknown": "Unexpected error"
     },
     "abort": {
@@ -26,9 +52,19 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Update credentials",
-        "description": "JWT expires about every 24 hours. Paste a fresh token from Honor AI Space plugin_account.xml.",
+      "password": {
+        "title": "Update login",
+        "description": "Re-authenticate with phone/password. Token is refreshed automatically while credentials are stored.",
+        "data": {
+          "account": "Phone / email",
+          "password": "Password",
+          "calling_code": "Country calling code",
+          "language": "Language"
+        }
+      },
+      "token": {
+        "title": "Update token",
+        "description": "Paste a fresh JWT if you use token mode.",
         "data": {
           "token": "Token",
           "device_id": "Device ID (thing_name)",
@@ -39,7 +75,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach Grit cloud or device status failed",
+      "cannot_connect": "Could not reach Grit cloud",
+      "invalid_auth": "Invalid account or password",
       "invalid_token_format": "Invalid token / plugin_account format",
       "unknown": "Unexpected error"
     }

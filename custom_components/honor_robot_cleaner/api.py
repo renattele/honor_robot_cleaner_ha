@@ -5,17 +5,28 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .const import (
+    APP_NAME,
+    APP_SECRET,
+    BUNDLE_ID,
+    CLIENT_ID,
     CMD_CONTINUE,
     CMD_DOCK,
     CMD_PAUSE,
     CMD_SPOT,
     CMD_START,
     CMD_STOP,
+    DEFAULT_APP_VERSION,
+    DEFAULT_BASE_URL,
+    DEFAULT_BASE_URL_CN,
+    DEFAULT_CALLING_CODE,
+    DEFAULT_LANGUAGE,
+    DEFAULT_REGION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,55 +40,108 @@ class GritApiError(Exception):
         self.code = code
 
 
+def base_url_for_calling_code(calling_code: str) -> str:
+    if (calling_code or "").strip() == "0086":
+        return DEFAULT_BASE_URL_CN
+    return DEFAULT_BASE_URL
+
+
 class GritApiClient:
-    """Minimal async wrapper around the Honour Grit HTTP API."""
+    """Async wrapper around the Honour Grit HTTP API."""
 
     def __init__(
         self,
-        token: str,
-        device_id: str,
         *,
-        region: str,
-        base_url: str,
-        sub_type: str,
+        token: str = "",
+        device_id: str = "",
+        region: str = DEFAULT_REGION,
+        base_url: str = DEFAULT_BASE_URL,
+        sub_type: str = "rob-01",
+        account: str = "",
+        password: str = "",
+        calling_code: str = DEFAULT_CALLING_CODE,
+        language: str = DEFAULT_LANGUAGE,
+        token_expires_at: float | None = None,
         timeout: float = 20.0,
     ) -> None:
-        self.token = token.strip()
-        self.device_id = device_id.strip()
-        self.region = region.strip()
-        self.base_url = base_url.rstrip("/") + "/"
-        self.sub_type = sub_type.strip()
+        self.token = (token or "").strip()
+        self.device_id = (device_id or "").strip()
+        self.region = (region or DEFAULT_REGION).strip()
+        self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/") + "/"
+        self.sub_type = (sub_type or "rob-01").strip()
+        self.account = (account or "").strip()
+        self.password = password or ""
+        self.calling_code = (calling_code or DEFAULT_CALLING_CODE).strip()
+        self.language = (language or DEFAULT_LANGUAGE).strip()
+        self.token_expires_at = token_expires_at
         self.timeout = timeout
 
-    def update_credentials(
+    def update_from_dict(self, data: dict[str, Any]) -> None:
+        mapping = {
+            "token": "token",
+            "device_id": "device_id",
+            "region": "region",
+            "base_url": "base_url",
+            "sub_type": "sub_type",
+            "account": "account",
+            "password": "password",
+            "calling_code": "calling_code",
+            "language": "language",
+            "token_expires_at": "token_expires_at",
+        }
+        for src, attr in mapping.items():
+            if src in data and data[src] is not None:
+                value = data[src]
+                if attr == "base_url":
+                    value = str(value).rstrip("/") + "/"
+                setattr(self, attr, value)
+
+    def _auth_header(self) -> dict[str, str]:
+        return {
+            "app_version": DEFAULT_APP_VERSION,
+            "app_name": APP_NAME,
+            "calling_code": self.calling_code,
+            "account": self.account or "null",
+            "language": self.language,
+            "client_id": CLIENT_ID,
+        }
+
+    async def async_post(
         self,
+        path: str,
+        body: dict[str, Any],
         *,
         token: str | None = None,
-        device_id: str | None = None,
         region: str | None = None,
-        base_url: str | None = None,
-        sub_type: str | None = None,
-    ) -> None:
-        if token is not None:
-            self.token = token.strip()
-        if device_id is not None:
-            self.device_id = device_id.strip()
-        if region is not None:
-            self.region = region.strip()
-        if base_url is not None:
-            self.base_url = base_url.rstrip("/") + "/"
-        if sub_type is not None:
-            self.sub_type = sub_type.strip()
+        use_api_headers: bool = False,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._post,
+            path,
+            body,
+            token,
+            region,
+            use_api_headers,
+        )
 
-    async def async_request(self, body: dict[str, Any]) -> dict[str, Any]:
-        return await asyncio.to_thread(self._request, body)
-
-    def _request(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self,
+        path: str,
+        body: dict[str, Any],
+        token: str | None,
+        region: str | None,
+        use_api_headers: bool,
+    ) -> dict[str, Any]:
         data = json.dumps(body).encode("utf-8")
-        req = Request(self.base_url + "api", data=data, method="POST")
+        url = self.base_url + path.lstrip("/")
+        req = Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/json")
-        req.add_header("token", self.token)
-        req.add_header("region", self.region)
+        if use_api_headers:
+            req.add_header("token", token if token is not None else self.token)
+            req.add_header("region", region if region is not None else self.region)
+        elif token:
+            req.add_header("token", token)
+
         try:
             with urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read().decode("utf-8")
@@ -98,6 +162,124 @@ class GritApiClient:
                 code=payload.get("code"),
             )
         return payload
+
+    async def async_verify_app(self) -> str:
+        payload = await self.async_post(
+            "oauth2",
+            {
+                "header": self._auth_header(),
+                "payload": {
+                    "opt": "verify_app",
+                    "app_secret": APP_SECRET,
+                    "app_name": APP_NAME,
+                    "bundle_id": BUNDLE_ID,
+                },
+            },
+        )
+        token = (payload.get("data") or {}).get("token")
+        if not token:
+            raise GritApiError("verify_app returned no token")
+        return token
+
+    async def async_login_password(
+        self,
+        account: str,
+        password: str,
+        *,
+        calling_code: str | None = None,
+        language: str | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Login with phone/email + password. Returns session fields."""
+        self.account = account.strip()
+        self.password = password
+        if calling_code:
+            self.calling_code = calling_code.strip()
+        if language:
+            self.language = language.strip()
+        if base_url:
+            self.base_url = base_url.rstrip("/") + "/"
+        else:
+            self.base_url = base_url_for_calling_code(self.calling_code)
+
+        app_token = await self.async_verify_app()
+        header = self._auth_header()
+        header["account"] = self.account
+        payload = await self.async_post(
+            "oauth2",
+            {
+                "header": header,
+                "payload": {"opt": "login", "pwd": self.password},
+            },
+            token=app_token,
+        )
+        data = payload.get("data") or {}
+        token = data.get("token")
+        if not token:
+            raise GritApiError("login returned no token")
+
+        self.token = token
+        if data.get("region_name"):
+            self.region = data["region_name"]
+        if data.get("api_url"):
+            self.base_url = str(data["api_url"]).rstrip("/") + "/"
+        expired = data.get("expired_time")
+        if expired is not None:
+            self.token_expires_at = time.time() + float(expired)
+        else:
+            self.token_expires_at = time.time() + 20 * 3600
+
+        return {
+            "token": self.token,
+            "region": self.region,
+            "base_url": self.base_url,
+            "wss_url": data.get("wss_url"),
+            "token_expires_at": self.token_expires_at,
+            "account": self.account,
+            "calling_code": self.calling_code,
+            "language": self.language,
+        }
+
+    async def async_ensure_token(self, skew: int = 600) -> bool:
+        """Re-login if password auth and token is missing/expiring. Returns True if refreshed."""
+        if not self.account or not self.password:
+            return False
+        needs = not self.token
+        if self.token_expires_at is not None and time.time() >= (
+            float(self.token_expires_at) - skew
+        ):
+            needs = True
+        if not needs:
+            return False
+        _LOGGER.info("Refreshing Grit session for %s", self.account)
+        await self.async_login_password(
+            self.account,
+            self.password,
+            calling_code=self.calling_code,
+            language=self.language,
+            base_url=self.base_url,
+        )
+        return True
+
+    async def async_request(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await self.async_post(
+                "api", body, use_api_headers=True
+            )
+        except GritApiError as err:
+            msg = str(err).lower()
+            if self.account and self.password and (
+                "token" in msg or err.code in (0, None)
+            ):
+                await self.async_login_password(
+                    self.account,
+                    self.password,
+                    calling_code=self.calling_code,
+                    language=self.language,
+                    base_url=self.base_url,
+                )
+                return await self.async_post("api", body, use_api_headers=True)
+            raise
 
     async def async_get_status(self) -> dict[str, Any]:
         payload = await self.async_request(

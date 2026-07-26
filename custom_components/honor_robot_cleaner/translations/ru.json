@@ -3,7 +3,25 @@
     "step": {
       "user": {
         "title": "Honor Robot Cleaner",
-        "description": "Вставь JWT или полную строку из plugin_account.xml (device;jwt;region;lang;exp;https;wss). Device ID можно не указывать, если строка полная.",
+        "menu_options": {
+          "login": "Войти по телефону / паролю",
+          "token": "Дополнительно: вставить облачный токен"
+        }
+      },
+      "login": {
+        "title": "Аккаунт YuGong / Grit",
+        "description": "Аккаунт облака RobotCleaner (телефон без кода страны, для РФ например 9XXXXXXXXX). Если вход был только через Honor AI Space и пароль не задавался — задай пароль в приложении Robot Sweeper или используй режим токена.",
+        "data": {
+          "account": "Телефон / email",
+          "password": "Пароль",
+          "calling_code": "Код страны",
+          "language": "Язык",
+          "name": "Имя в Home Assistant"
+        }
+      },
+      "token": {
+        "title": "Облачный токен",
+        "description": "Вставь JWT или полную строку из plugin_account.xml (device;jwt;region;lang;exp;https;wss).",
         "data": {
           "token": "Токен",
           "device_id": "Device ID (thing_name)",
@@ -12,12 +30,20 @@
           "base_url": "Базовый URL API",
           "sub_type": "Product sub_type"
         }
+      },
+      "device": {
+        "title": "Выбор робота",
+        "description": "Выбери пылесос для добавления.",
+        "data": {
+          "device_id": "Устройство"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Не удалось достучаться до облака Grit или получить статус",
-      "invalid_auth": "Токен отклонён",
+      "cannot_connect": "Не удалось достучаться до облака Grit",
+      "invalid_auth": "Неверный логин или пароль",
       "invalid_token_format": "Неверный формат токена / plugin_account",
+      "no_devices": "На аккаунте нет роботов",
       "unknown": "Неожиданная ошибка"
     },
     "abort": {
@@ -26,9 +52,19 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Обновить учётные данные",
-        "description": "JWT живёт ~24 часа. Вставь свежий токен из plugin_account.xml Honor AI Space.",
+      "password": {
+        "title": "Обновить вход",
+        "description": "Повторный вход по телефону/паролю. Пока сохранены учётные данные, токен обновляется сам.",
+        "data": {
+          "account": "Телефон / email",
+          "password": "Пароль",
+          "calling_code": "Код страны",
+          "language": "Язык"
+        }
+      },
+      "token": {
+        "title": "Обновить токен",
+        "description": "Вставь свежий JWT, если используешь режим токена.",
         "data": {
           "token": "Токен",
           "device_id": "Device ID (thing_name)",
@@ -39,7 +75,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Не удалось достучаться до облака Grit или получить статус",
+      "cannot_connect": "Не удалось достучаться до облака Grit",
+      "invalid_auth": "Неверный логин или пароль",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "unknown": "Неожиданная ошибка"
     }

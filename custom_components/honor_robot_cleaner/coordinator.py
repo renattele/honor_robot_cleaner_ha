@@ -11,7 +11,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import GritApiClient, GritApiError
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_BASE_URL,
+    CONF_REGION,
+    CONF_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    TOKEN_REFRESH_SKEW,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +45,18 @@ class HonorRobotCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
+            refreshed = await self.client.async_ensure_token(TOKEN_REFRESH_SKEW)
+            if refreshed:
+                self.hass.config_entries.async_update_entry(
+                    self.entry,
+                    data={
+                        **self.entry.data,
+                        CONF_TOKEN: self.client.token,
+                        CONF_REGION: self.client.region,
+                        CONF_BASE_URL: self.client.base_url,
+                        CONF_TOKEN_EXPIRES_AT: self.client.token_expires_at,
+                    },
+                )
             return await self.client.async_get_status()
         except GritApiError as err:
             raise UpdateFailed(str(err)) from err
