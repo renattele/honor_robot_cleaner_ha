@@ -174,6 +174,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
             try:
                 await async_setup_component(self.hass, DOMAIN, {})
+                await async_setup_component(self.hass, "webhook", {})
                 async_register_captcha_views(self.hass)
                 lang = "ru-ru" if self._honor_language.startswith("ru") else "en-us"
                 country = "ru" if self._honor_calling_code == "007" else "ru"
@@ -187,7 +188,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # No interactive captcha — proceed directly
                     self._captcha_validate = ""
                     return await self._async_honor_after_captcha()
-                # Relative URL → opens on the same host as the HA UI (home.lxbx.ru)
                 self._captcha_url = async_put_captcha_session(
                     self.hass,
                     self.flow_id,
@@ -237,26 +237,50 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_honor_captcha(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            pasted = (user_input.get("captcha_validate") or "").strip()
-            if pasted:
-                async_set_captcha_validate(self.hass, self.flow_id, pasted)
-            validate = async_get_captcha_validate(self.hass, self.flow_id)
-            if not validate:
-                errors["base"] = "captcha_required"
-            else:
-                self._captcha_validate = validate
-                return await self._async_honor_after_captcha()
+        """External captcha step (opens /local page; webhook advances the flow)."""
+        if user_input is None:
+            return self.async_external_step(
+                step_id="honor_captcha",
+                url=self._captcha_url,
+            )
 
-        return self.async_show_form(
-            step_id="honor_captcha",
-            data_schema=vol.Schema(
-                {vol.Optional("captcha_validate", default=""): str}
-            ),
-            errors=errors,
-            description_placeholders={"captcha_url": self._captcha_url},
+        validate = async_get_captcha_validate(self.hass, self.flow_id)
+        pasted = (user_input.get("captcha_validate") or "").strip()
+        if pasted:
+            async_set_captcha_validate(self.hass, self.flow_id, pasted)
+            validate = pasted
+        if not validate and not user_input.get("captcha_done"):
+            return self.async_abort(reason="unknown")
+        if not validate:
+            # Webhook said done but validate missing — restart
+            return await self._async_restart_honor_captcha()
+        self._captcha_validate = validate
+        return self.async_external_step_done(next_step_id="honor_after_captcha")
+
+    async def async_step_honor_after_captcha(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Continue Honor login after captcha (runs with spinner in UI)."""
+        return await self._async_honor_after_captcha()
+
+    async def _async_restart_honor_captcha(self) -> FlowResult:
+        assert self._honor is not None
+        challenge = await asyncio.to_thread(
+            self._honor.prepare_captcha, "remoteLogin"
         )
+        self._captcha_trans_no = challenge.captcha_trans_no
+        self._captcha_url = async_put_captcha_session(
+            self.hass,
+            self.flow_id,
+            {
+                "captcha_type": challenge.captcha_type,
+                "captcha_trans_no": challenge.captcha_trans_no,
+                "captcha_id": challenge.captcha_id,
+                "captcha_server": challenge.captcha_server,
+                "captcha_static_server": challenge.captcha_static_server,
+            },
+        )
+        return await self.async_step_honor_captcha()
 
     async def _async_honor_after_captcha(self) -> FlowResult:
         assert self._honor is not None
@@ -307,12 +331,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except HonorIdError as err:
             _LOGGER.warning("Honor password login failed: %s", err)
             if err.error_code in {"70002082"} or "captcha" in str(err).lower():
-                return self.async_show_form(
-                    step_id="honor_captcha",
-                    data_schema=vol.Schema({}),
-                    errors={"base": "captcha_required"},
-                    description_placeholders={"captcha_url": self._captcha_url},
-                )
+                return await self._async_restart_honor_captcha()
             if self._honor and self._honor.needs_sms_verification(err.data):
                 return await self.async_step_honor_sms()
             return self.async_show_form(

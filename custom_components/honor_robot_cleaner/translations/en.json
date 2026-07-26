@@ -21,11 +21,8 @@
         }
       },
       "honor_captcha": {
-        "title": "Captcha",
-        "description": "Open this link in the SAME browser/host as Home Assistant (e.g. home.lxbx.ru — not the LAN IP):\n{captcha_url}\n\nAfter success press Submit. If the page showed a validate code, paste it below.",
-        "data": {
-          "captcha_validate": "Validate code (if shown on the page)"
-        }
+        "title": "Honor ID captcha",
+        "description": "A captcha page will open. Complete it — the wizard continues automatically."
       },
       "honor_sms": {
         "title": "SMS code",
@@ -52,6 +49,10 @@
           "token": "Token",
           "name": "Name"
         }
+      },
+      "honor_after_captcha": {
+        "title": "Signing in…",
+        "description": "Captcha accepted, signing into Honor / Grit."
       }
     },
     "error": {
@@ -65,7 +66,8 @@
     },
     "abort": {
       "already_configured": "This robot is already configured",
-      "no_devices": "No robots found on this account"
+      "no_devices": "No robots found on this account",
+      "unknown": "Could not continue after captcha. Start setup again."
     }
   },
   "options": {
