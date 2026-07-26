@@ -63,6 +63,9 @@ def _persist_client_session(entry: ConfigEntry, client: GritApiClient) -> dict:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
+    from .http_captcha import async_register_captcha_views
+
+    async_register_captcha_views(hass)
     data = {**entry.data, **entry.options}
     client = GritApiClient(
         token=data.get(CONF_TOKEN, ""),

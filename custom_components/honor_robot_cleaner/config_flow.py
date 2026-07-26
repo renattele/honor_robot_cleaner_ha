@@ -146,6 +146,9 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
+        from .http_captcha import async_register_captcha_views
+
+        async_register_captcha_views(self.hass)
         return self.async_show_menu(
             step_id="user",
             menu_options=["honor", "login", "token"],

@@ -14,6 +14,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 CAPTCHA_STORE = "honor_captcha_sessions"
+_VIEWS_FLAG = "_captcha_views_registered"
 
 
 def _store(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -23,8 +24,18 @@ def _store(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
 
 @callback
 def async_register_captcha_views(hass: HomeAssistant) -> None:
+    """Register captcha HTTP routes (safe to call multiple times).
+
+    Important: on first-time UI setup there is no config entry yet, so
+    ``async_setup`` may not have run. Config flow must register views itself.
+    """
+    hass.data.setdefault(DOMAIN, {})
+    if hass.data[DOMAIN].get(_VIEWS_FLAG):
+        return
     hass.http.register_view(HonorCaptchaPageView)
     hass.http.register_view(HonorCaptchaValidateView)
+    hass.data[DOMAIN][_VIEWS_FLAG] = True
+    _LOGGER.debug("Registered Honor captcha HTTP views")
 
 
 @callback
@@ -33,11 +44,13 @@ def async_put_captcha_session(
     flow_id: str,
     challenge: dict[str, Any],
 ) -> None:
+    async_register_captcha_views(hass)
     _store(hass)[flow_id] = {
         "challenge": challenge,
         "validate": None,
         "created": __import__("time").time(),
     }
+
 
 
 @callback

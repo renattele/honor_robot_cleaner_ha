@@ -9,5 +9,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://git.lxbx.ru/renattele/honor_robot_cleaner_ha/issues",
   "requirements": [],
-  "version": "1.3.2"
+  "version": "1.3.3"
 }
