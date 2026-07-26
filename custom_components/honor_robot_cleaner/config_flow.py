@@ -12,7 +12,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
-from homeassistant.helpers.network import get_url
+from homeassistant.setup import async_setup_component
 
 from .const import (
     AUTH_MODE_HONOR,
@@ -53,6 +53,8 @@ from .http_captcha import (
     async_get_captcha_validate,
     async_pop_captcha_session,
     async_put_captcha_session,
+    async_register_captcha_views,
+    async_set_captcha_validate,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -146,8 +148,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        from .http_captcha import async_register_captcha_views
-
+        await async_setup_component(self.hass, DOMAIN, {})
         async_register_captcha_views(self.hass)
         return self.async_show_menu(
             step_id="user",
@@ -172,6 +173,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ).strip()
             self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
             try:
+                await async_setup_component(self.hass, DOMAIN, {})
+                async_register_captcha_views(self.hass)
                 lang = "ru-ru" if self._honor_language.startswith("ru") else "en-us"
                 country = "ru" if self._honor_calling_code == "007" else "ru"
                 self._honor = HonorIdClient(lang=lang, country_code=country)
@@ -184,7 +187,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # No interactive captcha — proceed directly
                     self._captcha_validate = ""
                     return await self._async_honor_after_captcha()
-                async_put_captcha_session(
+                # Relative URL → opens on the same host as the HA UI (home.lxbx.ru)
+                self._captcha_url = async_put_captcha_session(
                     self.hass,
                     self.flow_id,
                     {
@@ -195,12 +199,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "captcha_static_server": challenge.captcha_static_server,
                     },
                 )
-                path = f"/api/honor_robot_cleaner/captcha/{self.flow_id}"
-                try:
-                    base = get_url(self.hass, prefer_external=True)
-                    self._captcha_url = f"{base.rstrip('/')}{path}"
-                except Exception:  # noqa: BLE001
-                    self._captcha_url = path
                 return await self.async_step_honor_captcha()
             except HonorIdError as err:
                 _LOGGER.warning("Honor bootstrap/captcha failed: %s", err)
@@ -241,6 +239,9 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            pasted = (user_input.get("captcha_validate") or "").strip()
+            if pasted:
+                async_set_captcha_validate(self.hass, self.flow_id, pasted)
             validate = async_get_captcha_validate(self.hass, self.flow_id)
             if not validate:
                 errors["base"] = "captcha_required"
@@ -250,7 +251,9 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="honor_captcha",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {vol.Optional("captcha_validate", default=""): str}
+            ),
             errors=errors,
             description_placeholders={"captcha_url": self._captcha_url},
         )

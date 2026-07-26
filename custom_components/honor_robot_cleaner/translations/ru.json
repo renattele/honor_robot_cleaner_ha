@@ -22,7 +22,10 @@
       },
       "honor_captcha": {
         "title": "Капча",
-        "description": "Открой ссылку (нужна сессия Home Assistant), пройди капчу Honor, затем нажми «Отправить»: {captcha_url}"
+        "description": "Открой ссылку в ЭТОМ ЖЕ браузере (тот же хост, что у HA, например home.lxbx.ru — не 192.168.x):\n{captcha_url}\n\nПосле успеха нажми «Отправить». Если страница показала код validate — вставь его ниже.",
+        "data": {
+          "captcha_validate": "Код validate (если страница его показала)"
+        }
       },
       "honor_sms": {
         "title": "Код из SMS",

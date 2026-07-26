@@ -22,7 +22,10 @@
       },
       "honor_captcha": {
         "title": "Captcha",
-        "description": "Open this URL while logged into Home Assistant, solve the Honor captcha, then press Submit: {captcha_url}"
+        "description": "Open this link in the SAME browser/host as Home Assistant (e.g. home.lxbx.ru — not the LAN IP):\n{captcha_url}\n\nAfter success press Submit. If the page showed a validate code, paste it below.",
+        "data": {
+          "captcha_validate": "Validate code (if shown on the page)"
+        }
       },
       "honor_sms": {
         "title": "SMS code",
