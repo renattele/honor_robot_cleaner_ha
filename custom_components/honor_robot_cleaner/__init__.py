@@ -28,6 +28,7 @@ from .const import (
     CONF_SUB_TYPE,
     CONF_TOKEN,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_WSS_URL,
     DEFAULT_BASE_URL,
     DEFAULT_CALLING_CODE,
     DEFAULT_LANGUAGE,
@@ -37,6 +38,8 @@ from .const import (
     SERVICE_CLEAN_ROOMS,
 )
 from .coordinator import HonorRobotCoordinator
+from .map_parser import parse_map_data, render_map_png
+from .wss import GritWssClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,6 +113,8 @@ def _persist_client_session(entry: ConfigEntry, client: GritApiClient) -> dict:
         CONF_DEVICE_ID: client.device_id or entry.data.get(CONF_DEVICE_ID),
         CONF_AUTH_MODE: client.auth_mode or entry.data.get(CONF_AUTH_MODE),
     }
+    if client.wss_url:
+        data[CONF_WSS_URL] = client.wss_url
     if client.honor_session:
         data[CONF_HONOR_SESSION] = client.honor_session
     return data
@@ -134,6 +139,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         token_expires_at=data.get(CONF_TOKEN_EXPIRES_AT),
         auth_mode=data.get(CONF_AUTH_MODE, AUTH_MODE_TOKEN),
         honor_session=data.get(CONF_HONOR_SESSION) or {},
+        wss_url=data.get(CONF_WSS_URL, ""),
     )
 
     try:
@@ -151,10 +157,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = HonorRobotCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+    store: dict = {
         "client": client,
         "coordinator": coordinator,
+        "live_map": {},
+        "map": {},
     }
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = store
+
+    async def _on_status(status: dict) -> None:
+        coordinator.async_set_updated_data(status)
+
+    _last_map_render = {"ts": 0.0}
+
+    async def _on_map(map_data: str) -> None:
+        import time
+
+        now = time.time()
+        # Live frames arrive ~every 2s; render at most ~every 3s
+        if now - _last_map_render["ts"] < 3.0 and store.get("live_map", {}).get("image"):
+            store["live_map"]["raw"] = map_data
+            return
+        parsed = await hass.async_add_executor_job(parse_map_data, map_data)
+        if parsed is None:
+            return
+        image = await hass.async_add_executor_job(render_map_png, parsed)
+        live = {
+            "raw": map_data,
+            "parsed": parsed,
+            "image": image,
+            "map_id": parsed.map_id,
+            "rooms": [
+                {"room_id": r.room_id, "name": r.name} for r in parsed.rooms
+            ],
+        }
+        store["live_map"] = live
+        store["map"] = {
+            "map_id": parsed.map_id,
+            "rooms": live["rooms"],
+        }
+        _last_map_render["ts"] = now
+        hass.bus.async_fire(
+            f"{DOMAIN}_map_update", {"entry_id": entry.entry_id}
+        )
+
+    wss = GritWssClient(
+        client,
+        on_status=_on_status,
+        on_map=_on_map,
+        wss_url=client.resolve_wss_url(),
+    )
+    store["wss"] = wss
+    wss.start()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -163,6 +217,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    store = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
+    wss = store.get("wss")
+    if wss is not None:
+        await wss.async_stop()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)

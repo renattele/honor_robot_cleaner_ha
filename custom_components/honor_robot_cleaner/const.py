@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "honor_robot_cleaner"
-INTEGRATION_VERSION = "1.4.0"
+INTEGRATION_VERSION = "1.4.1"
 
 CONF_TOKEN = "token"
 CONF_DEVICE_ID = "device_id"
@@ -20,6 +20,7 @@ CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 CONF_SMS_CODE = "sms_code"
 CONF_RESEND_SMS = "resend_sms"
 CONF_HONOR_SESSION = "honor_session"
+CONF_WSS_URL = "wss_url"
 
 AUTH_MODE_PASSWORD = "password"
 AUTH_MODE_TOKEN = "token"

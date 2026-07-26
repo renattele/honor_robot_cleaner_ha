@@ -1,15 +1,21 @@
-"""Parse YuGong / Grit reuse_map_get map_data blobs into rooms + grid."""
+"""Parse YuGong / Grit map_data (HTTP or live WSS) into rooms + grid."""
 
 from __future__ import annotations
 
 import base64
 import json
 import logging
+import struct
 import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
+
+# Live WSS occupancy: 2-bit cells (MSB first)
+CELL_FREE = 0
+CELL_WALL = 1
+CELL_UNKNOWN = 3
 
 
 @dataclass
@@ -32,6 +38,8 @@ class ParsedMap:
     cells: list[int] | None = None
     path: list[tuple[float, float]] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+    # When True, dock/path/room vertices are already pixel coordinates
+    pixel_space: bool = False
 
     @property
     def has_image(self) -> bool:
@@ -49,13 +57,11 @@ def _try_load_object(raw: str | bytes | dict | list | None) -> Any:
     if not text:
         return None
 
-    # Direct JSON
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Base64 → JSON / zlib+JSON
     for decoder in (
         lambda s: base64.b64decode(s),
         lambda s: base64.urlsafe_b64decode(s + "=="),
@@ -64,18 +70,15 @@ def _try_load_object(raw: str | bytes | dict | list | None) -> Any:
             blob = decoder(text)
         except Exception:  # noqa: BLE001
             continue
-        try:
-            return json.loads(blob.decode("utf-8"))
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            return json.loads(zlib.decompress(blob).decode("utf-8"))
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            return json.loads(zlib.decompress(blob, -zlib.MAX_WBITS).decode("utf-8"))
-        except Exception:  # noqa: BLE001
-            pass
+        for unlock in (
+            lambda b: b,
+            lambda b: zlib.decompress(b),
+            lambda b: zlib.decompress(b, -zlib.MAX_WBITS),
+        ):
+            try:
+                return json.loads(unlock(blob).decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
     return None
 
 
@@ -93,15 +96,124 @@ def _as_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
-def _parse_rooms(obj: dict[str, Any]) -> list[MapRoom]:
+def _b64(data: str) -> bytes:
+    pad = "=" * ((4 - len(data) % 4) % 4)
+    return base64.b64decode(data + pad)
+
+
+def _unpack_2bit_msb(blob: bytes, width: int, height: int) -> list[int]:
+    need = width * height
+    cells: list[int] = []
+    for byte in blob:
+        for shift in (6, 4, 2, 0):
+            cells.append((byte >> shift) & 3)
+            if len(cells) >= need:
+                return cells
+    return cells[:need]
+
+
+def _mm_to_px(
+    x_mm: float, y_mm: float, *, origin: tuple[float, float], resolution: float
+) -> tuple[float, float]:
+    ox, oy = origin
+    return (ox + (x_mm / 1000.0) / resolution, oy + (y_mm / 1000.0) / resolution)
+
+
+def _parse_yugong_live(obj: dict[str, Any], *, map_id: str) -> ParsedMap:
+    width = _as_int(obj.get("MapWidth") or obj.get("map_width"))
+    height = _as_int(obj.get("MapHigh") or obj.get("MapHeight") or obj.get("map_height"))
+    resolution = _as_float(obj.get("MapResolution") or obj.get("resolution"), 0.05)
+    origin_raw = obj.get("MapOrigin") or [0, 0]
+    origin = (_as_float(origin_raw[0]), _as_float(origin_raw[1])) if origin_raw else (0.0, 0.0)
+
+    cells: list[int] | None = None
+    map_data_b64 = obj.get("MapData")
+    if isinstance(map_data_b64, str) and map_data_b64 and width and height:
+        try:
+            cells = _unpack_2bit_msb(_b64(map_data_b64), width, height)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Failed to decode MapData grid", exc_info=True)
+
+    rooms: list[MapRoom] = []
+    names: dict[int, str] = {}
+    room_info = obj.get("room_info")
+    if isinstance(room_info, dict):
+        for key, val in room_info.items():
+            rid = _as_int(key if not isinstance(val, dict) else val.get("room_id", key))
+            if isinstance(val, dict):
+                names[rid] = str(val.get("room_name") or val.get("name") or f"Room {rid}")
+            elif isinstance(val, str) and val:
+                names[rid] = val
+
+    for item in obj.get("room_zone_info") or []:
+        if not isinstance(item, dict):
+            continue
+        rid = _as_int(item.get("room_id"))
+        xs = item.get("room_point_x") or []
+        ys = item.get("room_point_y") or []
+        verts: list[tuple[float, float]] = []
+        if isinstance(xs, list) and isinstance(ys, list):
+            for x, y in zip(xs, ys):
+                verts.append(
+                    _mm_to_px(_as_float(x), _as_float(y), origin=origin, resolution=resolution)
+                )
+        rooms.append(
+            MapRoom(
+                room_id=rid,
+                name=names.get(rid, f"Room {rid}"),
+                vertices=verts,
+            )
+        )
+
+    path: list[tuple[float, float]] = []
+    point_data = obj.get("PointData")
+    if isinstance(point_data, str) and point_data:
+        try:
+            blob = _b64(point_data)
+            for i in range(0, len(blob) - 3, 4):
+                x_mm, y_mm = struct.unpack_from("<hh", blob, i)
+                path.append(
+                    _mm_to_px(float(x_mm), float(y_mm), origin=origin, resolution=resolution)
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Failed to decode PointData", exc_info=True)
+
+    # Dock: MapOrigin is charger cell in this firmware family
+    dock = (origin[0], origin[1])
+
+    return ParsedMap(
+        map_id=str(map_id or obj.get("map_id") or ""),
+        width=width,
+        height=height,
+        resolution=resolution,
+        dock=dock,
+        rooms=rooms,
+        cells=cells,
+        path=path,
+        raw=obj,
+        pixel_space=True,
+    )
+
+
+def _parse_rooms_generic(obj: dict[str, Any]) -> list[MapRoom]:
     rooms: list[MapRoom] = []
     candidates = (
         obj.get("room_info")
         or obj.get("rooms")
         or obj.get("roomList")
         or obj.get("zone_list")
+        or obj.get("room_zone_info")
         or []
     )
+    if isinstance(candidates, dict):
+        # id → name map
+        for key, val in candidates.items():
+            rid = _as_int(key)
+            name = val if isinstance(val, str) else str(
+                (val or {}).get("room_name") or (val or {}).get("name") or f"Room {rid}"
+            )
+            rooms.append(MapRoom(room_id=rid, name=name))
+        return rooms
     if isinstance(candidates, str):
         try:
             candidates = json.loads(candidates)
@@ -121,15 +233,14 @@ def _parse_rooms(obj: dict[str, Any]) -> list[MapRoom]:
             or item.get("roomName")
             or f"Room {rid}"
         )
-        verts_raw = (
-            item.get("vertexList")
-            or item.get("vertex_list")
-            or item.get("vertices")
-            or []
-        )
         verts: list[tuple[float, float]] = []
-        if isinstance(verts_raw, list):
-            for v in verts_raw:
+        xs = item.get("room_point_x")
+        ys = item.get("room_point_y")
+        if isinstance(xs, list) and isinstance(ys, list):
+            for x, y in zip(xs, ys):
+                verts.append((_as_float(x), _as_float(y)))
+        else:
+            for v in item.get("vertexList") or item.get("vertices") or []:
                 if isinstance(v, dict):
                     verts.append((_as_float(v.get("x")), _as_float(v.get("y"))))
                 elif isinstance(v, (list, tuple)) and len(v) >= 2:
@@ -138,54 +249,38 @@ def _parse_rooms(obj: dict[str, Any]) -> list[MapRoom]:
     return rooms
 
 
-def _parse_cells(obj: dict[str, Any], width: int, height: int) -> list[int] | None:
-    raw = (
-        obj.get("mapData")
-        or obj.get("map_data")
-        or obj.get("map_cells")
-        or obj.get("data")
-    )
-    if isinstance(raw, list) and raw and isinstance(raw[0], (int, float)):
-        return [int(x) for x in raw]
-    if isinstance(raw, str) and raw:
-        # Sometimes a compact digit string / CSV
-        if "," in raw:
-            try:
-                return [int(x) for x in raw.split(",") if x.strip() != ""]
-            except ValueError:
-                pass
-        try:
-            decoded = base64.b64decode(raw)
-            return list(decoded)
-        except Exception:  # noqa: BLE001
-            pass
-    if width and height and isinstance(raw, list) and len(raw) == width * height:
-        return [int(x) for x in raw]
-    return None
-
-
 def parse_map_data(
     map_data: str | bytes | dict | None,
     *,
     map_id: str = "",
 ) -> ParsedMap | None:
-    """Best-effort parse of Grit map_data into rooms + optional cell grid."""
+    """Parse Grit map_data (live WSS zlib blob or HTTP payload) into a grid."""
     obj = _try_load_object(map_data)
     if obj is None:
         return None
     if isinstance(obj, list):
-        # Unexpected top-level list — wrap
         obj = {"rooms": obj}
     if not isinstance(obj, dict):
         return None
 
-    # Nested map payload
+    # YuGong live / multi-map JSON (ProtocolVersion + MapData)
+    if (
+        obj.get("ProtocolVersion")
+        or obj.get("MapData")
+        or obj.get("MapWidth")
+        or obj.get("MapHigh")
+    ):
+        return _parse_yugong_live(obj, map_id=map_id)
+
     for nest in ("map", "map_info", "mapInfo", "data"):
         nested = obj.get(nest)
         if isinstance(nested, dict) and (
-            "width" in nested or "mapData" in nested or "rooms" in nested
+            "width" in nested or "MapData" in nested or "rooms" in nested
         ):
             obj = {**obj, **nested}
+
+    if obj.get("MapData") or obj.get("MapWidth"):
+        return _parse_yugong_live(obj, map_id=map_id)
 
     width = _as_int(obj.get("width") or obj.get("map_width"))
     height = _as_int(obj.get("height") or obj.get("map_height"))
@@ -196,31 +291,51 @@ def parse_map_data(
         resolution=_as_float(obj.get("resolution"), 0.05),
         x_min=_as_float(obj.get("x_min") or obj.get("xmin")),
         y_min=_as_float(obj.get("y_min") or obj.get("ymin")),
-        rooms=_parse_rooms(obj),
-        cells=_parse_cells(obj, width, height),
+        rooms=_parse_rooms_generic(obj),
         raw=obj,
     )
+    raw_cells = obj.get("mapData") or obj.get("map_cells")
+    if isinstance(raw_cells, list):
+        parsed.cells = [int(x) for x in raw_cells]
+    elif isinstance(raw_cells, str) and raw_cells:
+        try:
+            blob = _b64(raw_cells)
+            if width and height and len(blob) >= (width * height + 3) // 4:
+                parsed.cells = _unpack_2bit_msb(blob, width, height)
+            else:
+                parsed.cells = list(blob)
+        except Exception:  # noqa: BLE001
+            pass
+
     dock_x = obj.get("dockerPosX", obj.get("dock_x", obj.get("charger_x")))
     dock_y = obj.get("dockerPosY", obj.get("dock_y", obj.get("charger_y")))
     if dock_x is not None and dock_y is not None:
         parsed.dock = (_as_float(dock_x), _as_float(dock_y))
 
-    path_raw = obj.get("path") or obj.get("path_points") or []
-    if isinstance(path_raw, list):
-        for p in path_raw:
-            if isinstance(p, dict):
-                parsed.path.append((_as_float(p.get("x")), _as_float(p.get("y"))))
-            elif isinstance(p, (list, tuple)) and len(p) >= 2:
-                parsed.path.append((_as_float(p[0]), _as_float(p[1])))
-
     if not parsed.rooms and not parsed.has_image:
-        _LOGGER.debug("map_data parsed but empty rooms/grid keys=%s", list(obj.keys())[:30])
+        _LOGGER.debug(
+            "map_data parsed but empty rooms/grid keys=%s", list(obj.keys())[:30]
+        )
     return parsed
 
 
-def render_map_png(parsed: ParsedMap, *, scale: int = 4) -> bytes:
-    """Render a simple top-down PNG. Uses stdlib only (PPM→via Pillow if present)."""
+def _to_px(
+    parsed: ParsedMap, x: float, y: float, scale: int
+) -> tuple[int, int]:
+    if parsed.pixel_space:
+        return (int(x * scale), int(y * scale))
+    res = parsed.resolution or 0.05
+    return (
+        int((x - parsed.x_min) / res * scale),
+        int((y - parsed.y_min) / res * scale),
+    )
+
+
+def render_map_png(parsed: ParsedMap, *, scale: int = 3) -> bytes:
+    """Render a top-down PNG of the occupancy grid."""
     try:
+        from io import BytesIO
+
         from PIL import Image, ImageDraw  # type: ignore
     except ImportError:
         return _render_placeholder_png(parsed)
@@ -229,22 +344,22 @@ def render_map_png(parsed: ParsedMap, *, scale: int = 4) -> bytes:
         return _render_placeholder_png(parsed)
 
     w, h = parsed.width, parsed.height
-    img = Image.new("RGB", (w, h), (30, 30, 36))
+    img = Image.new("RGB", (w, h), (32, 34, 40))
     pixels = img.load()
     assert parsed.cells is not None
-    # Heuristic palette: 0 free, >0 room/obstacle variants
     for i, cell in enumerate(parsed.cells[: w * h]):
         x = i % w
         y = i // w
         c = int(cell)
-        if c == 0:
-            color = (45, 48, 55)
-        elif c < 0:
-            color = (90, 90, 100)  # unknown / wall-ish
-        elif c == 255 or c > 200:
-            color = (20, 20, 24)  # obstacle
+        if c == CELL_FREE:
+            color = (58, 72, 88)
+        elif c == CELL_WALL:
+            color = (210, 220, 230)
+        elif c == CELL_UNKNOWN:
+            color = (32, 34, 40)
+        elif c == 2:
+            color = (70, 110, 150)
         else:
-            # room tint
             color = (
                 40 + (c * 37) % 140,
                 80 + (c * 53) % 120,
@@ -255,25 +370,20 @@ def render_map_png(parsed: ParsedMap, *, scale: int = 4) -> bytes:
     if scale != 1:
         img = img.resize((w * scale, h * scale), Image.NEAREST)
     draw = ImageDraw.Draw(img)
-    # Dock
-    if parsed.dock and parsed.resolution:
-        dx = int((parsed.dock[0] - parsed.x_min) / parsed.resolution * scale)
-        dy = int((parsed.dock[1] - parsed.y_min) / parsed.resolution * scale)
-        r = 4 * scale
-        draw.ellipse((dx - r, dy - r, dx + r, dy + r), fill=(255, 200, 40))
-    # Path
-    if len(parsed.path) >= 2 and parsed.resolution:
-        pts = []
-        for px, py in parsed.path:
-            pts.append(
-                (
-                    int((px - parsed.x_min) / parsed.resolution * scale),
-                    int((py - parsed.y_min) / parsed.resolution * scale),
-                )
-            )
-        draw.line(pts, fill=(80, 180, 255), width=max(1, scale))
 
-    from io import BytesIO
+    for room in parsed.rooms:
+        if len(room.vertices) >= 3:
+            pts = [_to_px(parsed, vx, vy, scale) for vx, vy in room.vertices]
+            draw.polygon(pts, outline=(255, 196, 72))
+
+    if parsed.dock is not None:
+        dx, dy = _to_px(parsed, parsed.dock[0], parsed.dock[1], scale)
+        r = max(3, 3 * scale)
+        draw.ellipse((dx - r, dy - r, dx + r, dy + r), fill=(255, 200, 40))
+
+    if len(parsed.path) >= 2:
+        pts = [_to_px(parsed, px, py, scale) for px, py in parsed.path]
+        draw.line(pts, fill=(80, 180, 255), width=max(1, scale))
 
     buf = BytesIO()
     img.save(buf, format="PNG")
@@ -281,11 +391,10 @@ def render_map_png(parsed: ParsedMap, *, scale: int = 4) -> bytes:
 
 
 def _render_placeholder_png(parsed: ParsedMap | None) -> bytes:
-    """Minimal valid PNG without Pillow (1x1) or labeled canvas with Pillow."""
     try:
         from io import BytesIO
 
-        from PIL import Image, ImageDraw, ImageFont  # type: ignore
+        from PIL import Image, ImageDraw  # type: ignore
 
         img = Image.new("RGB", (480, 320), (28, 30, 36))
         draw = ImageDraw.Draw(img)
@@ -307,14 +416,14 @@ def _render_placeholder_png(parsed: ParsedMap | None) -> bytes:
         else:
             draw.text(
                 (24, 80),
-                "No map grid yet.\nSave a map in Honor AI Space,\nthen refresh.",
+                "Waiting for live map via WSS…\n"
+                "Robot must be online.",
                 fill=(160, 170, 190),
             )
         buf = BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
     except Exception:  # noqa: BLE001
-        # 1x1 PNG
         return base64.b64decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
             "/x8AAwMCAO5XBZoAAAAASUVORK5CYII="

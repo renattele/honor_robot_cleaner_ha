@@ -1,4 +1,4 @@
-"""Map camera — PNG snapshot from reuse_map_get."""
+"""Map camera — live WSS snapshot (HTTP reuse_map_get fallback)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -20,8 +20,7 @@ from .map_parser import ParsedMap, parse_map_data, render_map_png
 
 _LOGGER = logging.getLogger(__name__)
 
-# Avoid hammering cloud on every camera card refresh
-_MIN_REFRESH_SECONDS = 60
+_HTTP_FALLBACK_SECONDS = 60
 
 
 async def async_setup_entry(
@@ -58,33 +57,65 @@ class HonorMapCamera(CoordinatorEntity[HonorRobotCoordinator], Camera):
         Camera.__init__(self)
         self._client = client
         self._store = store
+        self._entry_id = entry.entry_id
         device_id = entry.data["device_id"]
         self._attr_unique_id = f"{device_id}_map"
         self._attr_device_info = device_info_for_entry(entry)
         self._image: bytes | None = None
         self._parsed: ParsedMap | None = None
         self._map_id: str = ""
-        self._last_fetch: float = 0.0
+        self._last_http_fetch: float = 0.0
         self._content_type = "image/png"
+        self._unsub_bus = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        await self._async_refresh_map(force=True)
+
+        @callback
+        def _on_live_map(event) -> None:
+            if event.data.get("entry_id") != self._entry_id:
+                return
+            self._apply_store_map()
+            self.async_write_ha_state()
+
+        self._unsub_bus = self.hass.bus.async_listen(
+            f"{DOMAIN}_map_update", _on_live_map
+        )
+        self._apply_store_map()
+        if self._image is None:
+            await self._async_http_fallback(force=True)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_bus:
+            self._unsub_bus()
+            self._unsub_bus = None
+        await super().async_will_remove_from_hass()
+
+    def _apply_store_map(self) -> None:
+        live = self._store.get("live_map") or {}
+        image = live.get("image")
+        parsed = live.get("parsed")
+        if image:
+            self._image = image
+            self._parsed = parsed
+            self._map_id = str(live.get("map_id") or "")
 
     async def async_camera_image(
         self,
         width: int | None = None,
         height: int | None = None,
     ) -> bytes | None:
-        await self._async_refresh_map(force=False)
+        self._apply_store_map()
+        if self._image is None:
+            await self._async_http_fallback(force=False)
         return self._image
 
-    async def _async_refresh_map(self, *, force: bool) -> None:
+    async def _async_http_fallback(self, *, force: bool) -> None:
         now = datetime.now(timezone.utc).timestamp()
         if (
             not force
             and self._image is not None
-            and (now - self._last_fetch) < _MIN_REFRESH_SECONDS
+            and (now - self._last_http_fetch) < _HTTP_FALLBACK_SECONDS
         ):
             return
 
@@ -94,25 +125,19 @@ class HonorMapCamera(CoordinatorEntity[HonorRobotCoordinator], Camera):
             try:
                 raw_map = await self._client.async_get_map(map_id)
             except GritApiError as err:
-                _LOGGER.warning("reuse_map_get failed: %s", err)
+                _LOGGER.debug("reuse_map_get fallback: %s", err)
 
         map_data = raw_map.get("map_data") if raw_map else None
         parsed = parse_map_data(map_data, map_id=map_id) if map_data else None
         if parsed is None:
             parsed = ParsedMap(map_id=map_id)
 
-        # Room list may also live on list payload
-        if not parsed.rooms and raw_map:
-            alt = parse_map_data(raw_map, map_id=map_id)
-            if alt and alt.rooms:
-                parsed.rooms = alt.rooms
-
         self._parsed = parsed
-        self._map_id = map_id
+        self._map_id = map_id or parsed.map_id
         self._image = await self.hass.async_add_executor_job(render_map_png, parsed)
-        self._last_fetch = now
+        self._last_http_fetch = now
         self._store["map"] = {
-            "map_id": map_id,
+            "map_id": self._map_id,
             "rooms": [
                 {"room_id": r.room_id, "name": r.name} for r in parsed.rooms
             ],
@@ -143,13 +168,21 @@ class HonorMapCamera(CoordinatorEntity[HonorRobotCoordinator], Camera):
         return ""
 
     @property
+    def is_streaming(self) -> bool:
+        wss = self._store.get("wss")
+        return bool(wss and getattr(wss, "connected", False))
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         rooms = []
         if self._parsed:
             rooms = [
                 {"room_id": r.room_id, "name": r.name} for r in self._parsed.rooms
             ]
+        wss = self._store.get("wss")
         return {
             ATTR_MAP_ID: self._map_id or None,
             ATTR_ROOMS: rooms,
+            "wss_connected": bool(wss and getattr(wss, "connected", False)),
+            "source": "wss" if (self._store.get("live_map") or {}).get("image") else "http",
         }

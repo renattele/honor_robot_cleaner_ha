@@ -125,6 +125,7 @@ class GritApiClient:
         token_expires_at: float | None = None,
         auth_mode: str = AUTH_MODE_TOKEN,
         honor_session: dict[str, Any] | None = None,
+        wss_url: str = "",
         timeout: float = 20.0,
     ) -> None:
         self.token = (token or "").strip()
@@ -139,6 +140,7 @@ class GritApiClient:
         self.auth_mode = (auth_mode or AUTH_MODE_TOKEN).strip()
         self.honor_session = dict(honor_session or {})
         self.token_expires_at = token_expires_at
+        self.wss_url = (wss_url or "").strip()
         self.timeout = timeout
         self.sync_token_expiry()
 
@@ -162,6 +164,7 @@ class GritApiClient:
             "token_expires_at": "token_expires_at",
             "auth_mode": "auth_mode",
             "honor_session": "honor_session",
+            "wss_url": "wss_url",
         }
         for src, attr in mapping.items():
             if src in data and data[src] is not None:
@@ -173,6 +176,13 @@ class GritApiClient:
                 setattr(self, attr, value)
         if "token" in data:
             self.sync_token_expiry()
+
+    def resolve_wss_url(self) -> str:
+        if self.wss_url:
+            return self.wss_url
+        from .wss import wss_url_from_base
+
+        return wss_url_from_base(self.base_url)
 
     def _auth_header(self) -> dict[str, str]:
         return {
@@ -361,12 +371,14 @@ class GritApiClient:
             if self.token_expires_at is None:
                 self.token_expires_at = time.time() + 20 * 3600
         self.auth_mode = AUTH_MODE_HONOR
+        if data.get("wss_url"):
+            self.wss_url = str(data["wss_url"])
 
         return {
             "token": self.token,
             "region": self.region,
             "base_url": self.base_url,
-            "wss_url": data.get("wss_url"),
+            "wss_url": data.get("wss_url") or self.wss_url,
             "token_expires_at": self.token_expires_at,
             "device_id": self.device_id,
             "sub_type": self.sub_type,
@@ -425,12 +437,14 @@ class GritApiClient:
             if self.token_expires_at is None:
                 self.token_expires_at = time.time() + 20 * 3600
         self.auth_mode = AUTH_MODE_PASSWORD
+        if data.get("wss_url"):
+            self.wss_url = str(data["wss_url"])
 
         return {
             "token": self.token,
             "region": self.region,
             "base_url": self.base_url,
-            "wss_url": data.get("wss_url"),
+            "wss_url": data.get("wss_url") or self.wss_url,
             "token_expires_at": self.token_expires_at,
             "account": self.account,
             "calling_code": self.calling_code,
