@@ -20,7 +20,7 @@ from .const import (
     AUTH_MODE_TOKEN,
     CALLING_CODES,
     CONF_ACCOUNT,
-        CONF_AUTH_MODE,
+    CONF_AUTH_MODE,
     CONF_BASE_URL,
     CONF_CALLING_CODE,
     CONF_DEVICE_ID,
@@ -28,7 +28,7 @@ from .const import (
     CONF_LANGUAGE,
     CONF_NAME,
     CONF_PASSWORD,
-        CONF_REGION,
+    CONF_REGION,
     CONF_SMS_CODE,
     CONF_SUB_TYPE,
     CONF_TOKEN,
@@ -59,29 +59,45 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _classify_grit_error(err: GritApiError) -> str:
-    """Map API failures to config-flow error keys."""
+    """Map API failures to config-flow error keys.
+
+    ``cannot_connect`` only for real transport failures — auth/cloud rejects
+    must not look like “network unreachable”.
+    """
     msg = str(err)
     lower = msg.lower()
-    if "network error" in lower or "timed out" in lower or "timeout" in lower:
-        return "cannot_connect"
+    # Auth / policy first (403 bodies sometimes mention timeouts in HTML)
     if any(
         s in msg
         for s in (
             "PasswordInvalid",
             "UserNotExist",
             "TokenInvalid",
+            "TokenInValid",
             "Unauthorized",
             "AccessDenied",
             "not authorized",
             "explicit deny",
+            "Honor session",
+            "No Honor session",
+            "Token expired",
         )
     ):
         return "invalid_auth"
     if "HTTP 401" in msg or "HTTP 403" in msg:
         return "invalid_auth"
-    if "password" in lower:
+    if lower.startswith("network error") or "timed out" in lower:
+        return "cannot_connect"
+    if "password" in lower and "missing" not in lower:
         return "invalid_auth"
     return "unknown"
+
+
+def _error_detail(err: BaseException, limit: int = 240) -> str:
+    text = str(err).strip().replace("\n", " ")
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
 
 
 def _classify_honor_error(err: HonorIdError) -> str:
@@ -699,9 +715,12 @@ class HonorRobotOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
     ) -> FlowResult:
         """Update token / trigger Honor silent refresh for Honor/token modes."""
         errors: dict[str, str] = {}
+        error_detail = ""
         current = {**self.config_entry.data, **self.options}
         if user_input is not None:
             try:
+                # Leave blank to force Honor silent refresh (do not prefill JWT —
+                # a stale default would skip refresh and fail on /api).
                 token_raw = (user_input.get(CONF_TOKEN) or "").strip()
                 data = {
                     CONF_DEVICE_ID: current.get(CONF_DEVICE_ID, ""),
@@ -741,9 +760,15 @@ class HonorRobotOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                     client.region = parsed[CONF_REGION]
                     client.base_url = parsed[CONF_BASE_URL]
                     client.sub_type = parsed[CONF_SUB_TYPE]
+                    client.auth_mode = AUTH_MODE_TOKEN
                     client.sync_token_expiry()
-                elif client.honor_session:
+                elif client.honor_session or data[CONF_AUTH_MODE] == AUTH_MODE_HONOR:
                     await client.async_ensure_token(force=True)
+                elif not client.token:
+                    raise GritApiError(
+                        "No token and no Honor session. "
+                        "Paste a JWT or re-add via Honor AI Space login."
+                    )
                 await client.async_get_status()
                 data.update(
                     {
@@ -752,26 +777,33 @@ class HonorRobotOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                         CONF_REGION: client.region,
                         CONF_BASE_URL: client.base_url,
                         CONF_TOKEN_EXPIRES_AT: client.token_expires_at,
+                        CONF_AUTH_MODE: client.auth_mode or data[CONF_AUTH_MODE],
                         CONF_HONOR_SESSION: client.honor_session
                         or data.get(CONF_HONOR_SESSION)
                         or {},
                     }
                 )
-                return self.async_create_entry(title="", data=data)
-            except ValueError:
+                # Persist into entry.data (options merge is easy to lose on reload)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={**self.config_entry.data, **data},
+                )
+                return self.async_create_entry(title="", data={})
+            except ValueError as err:
                 errors["base"] = "invalid_token_format"
+                error_detail = _error_detail(err)
             except GritApiError as err:
                 _LOGGER.warning("Options refresh failed: %s", err)
                 errors["base"] = _classify_grit_error(err)
-            except Exception:  # noqa: BLE001
+                error_detail = _error_detail(err)
+            except Exception as err:  # noqa: BLE001
                 _LOGGER.exception("Options refresh failed")
                 errors["base"] = "unknown"
+                error_detail = _error_detail(err)
 
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_TOKEN, default=current.get(CONF_TOKEN, "")
-                ): selector.TextSelector(
+                vol.Optional(CONF_TOKEN, default=""): selector.TextSelector(
                     selector.TextSelectorConfig(
                         type=selector.TextSelectorType.PASSWORD, multiline=True
                     )
@@ -779,7 +811,10 @@ class HonorRobotOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             }
         )
         return self.async_show_form(
-            step_id="refresh", data_schema=schema, errors=errors
+            step_id="refresh",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"error_detail": error_detail},
         )
 
     async def async_step_password(

@@ -65,13 +65,13 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach cloud / Honor ID",
-      "invalid_auth": "Login rejected (bad credentials, captcha, or expired session).",
+      "cannot_connect": "Network unreachable to Grit/Honor ID (DNS/firewall/SSL).",
+      "invalid_auth": "Cloud rejected login (credentials/token/session).",
       "invalid_sms": "Invalid or expired SMS code",
       "captcha_required": "Solve the captcha in the browser link first, then continue",
       "invalid_token_format": "Invalid token / plugin_account format",
       "no_devices": "No robots found on this account",
-      "unknown": "Unexpected error"
+      "unknown": "Error — see details below / Home Assistant log."
     },
     "abort": {
       "already_configured": "This robot is already configured",
@@ -82,7 +82,7 @@
     "step": {
       "refresh": {
         "title": "Token / refresh",
-        "description": "Honor AI Space mode refreshes the Grit JWT automatically via the stored Honor session. Paste a new token only if needed, or leave blank and Submit to force a silent refresh.",
+        "description": "Leave token blank and Submit for Honor silent refresh, or paste a fresh JWT. On failure the exact reason is shown below.\n\n{error_detail}",
         "data": {
           "token": "Token (optional paste)"
         }
@@ -99,10 +99,10 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach Grit cloud",
-      "invalid_auth": "Cloud rejected login (bad credentials or expired/revoked token).",
+      "cannot_connect": "Home Assistant host cannot reach Grit cloud.",
+      "invalid_auth": "Cloud rejected token/session. Re-login via Honor AI Space or paste a fresh JWT.",
       "invalid_token_format": "Invalid token / plugin_account format",
-      "unknown": "Unexpected error"
+      "unknown": "Error — see details below / Home Assistant log."
     }
   }
 }

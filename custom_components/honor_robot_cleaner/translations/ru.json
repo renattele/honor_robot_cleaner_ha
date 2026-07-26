@@ -65,13 +65,13 @@
       }
     },
     "error": {
-      "cannot_connect": "Не удалось достучаться до облака / Honor ID",
-      "invalid_auth": "Вход отклонён (неверный логин/пароль, капча или просроченная сессия).",
+      "cannot_connect": "Нет сети до Grit/Honor ID (DNS/firewall/SSL).",
+      "invalid_auth": "Облако отклонило вход (логин/пароль/токен/сессия).",
       "invalid_sms": "Неверный или просроченный код из SMS",
       "captcha_required": "Сначала пройди капчу по ссылке в браузере, затем продолжай",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "no_devices": "На аккаунте нет роботов",
-      "unknown": "Неожиданная ошибка"
+      "unknown": "Ошибка: смотри детали ниже / лог Home Assistant."
     },
     "abort": {
       "already_configured": "Этот робот уже добавлен",
@@ -82,7 +82,7 @@
     "step": {
       "refresh": {
         "title": "Токен / обновление",
-        "description": "В режиме Honor AI Space JWT обновляется сам через сохранённую сессию Honor. Можно вставить новый токен или оставить пустым и нажать Submit для принудительного silent refresh.",
+        "description": "Оставь токен пустым и нажми Submit — silent refresh через сессию Honor. Или вставь свежий JWT. При ошибке ниже будет точная причина.\n\n{error_detail}",
         "data": {
           "token": "Токен (опционально)"
         }
@@ -99,10 +99,10 @@
       }
     },
     "error": {
-      "cannot_connect": "Не удалось достучаться до облака Grit",
-      "invalid_auth": "Облако отклонило вход (неверный логин/пароль или просроченный/отозванный токен).",
+      "cannot_connect": "Нет сети до облака Grit с хоста Home Assistant.",
+      "invalid_auth": "Облако отклонило токен/сессию. Войди заново через Honor AI Space или вставь свежий JWT.",
       "invalid_token_format": "Неверный формат токена / plugin_account",
-      "unknown": "Неожиданная ошибка"
+      "unknown": "Ошибка: смотри детали ниже / лог Home Assistant."
     }
   }
 }
