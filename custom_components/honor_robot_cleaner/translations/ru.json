@@ -34,9 +34,9 @@
       },
       "honor_device": {
         "title": "Id робота",
-        "description": "Grit для первого входа нужен thing_name робота (пустой → Put_Table_Error). Проще всего вставить весь токен plugin_account с телефона (device;jwt;region;…) — возьмём только первый кусок. Или вставь один id (заканчивается на …bndpiz…).\n\n{error_detail}",
+        "description": "Grit для первого входа нужен id робота — тот же, который AI Space уже знает как cloud device id.\n\nRoot не нужен: Honor AI Space → робот → настройки / сведения об устройстве → скопируй длинный Device ID / SN (заканчивается на …bndpiz…).\n\nМожно также вставить весь токен plugin_account (device;jwt;region;…), если он есть.\n\n{error_detail}",
         "data": {
-          "device_id": "Id робота или токен plugin_account"
+          "device_id": "Id из приложения (или токен plugin_account)"
         }
       },
       "login": {

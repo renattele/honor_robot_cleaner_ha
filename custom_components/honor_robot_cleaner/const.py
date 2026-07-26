@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "honor_robot_cleaner"
-INTEGRATION_VERSION = "1.4.3"
+INTEGRATION_VERSION = "1.4.4"
 
 CONF_TOKEN = "token"
 CONF_DEVICE_ID = "device_id"
