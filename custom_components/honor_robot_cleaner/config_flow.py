@@ -29,6 +29,7 @@ from .const import (
     CONF_NAME,
     CONF_PASSWORD,
     CONF_REGION,
+    CONF_RESEND_SMS,
     CONF_SMS_CODE,
     CONF_SUB_TYPE,
     CONF_TOKEN,
@@ -137,6 +138,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._captcha_validate = ""
         self._verify_user_account = ""
         self._verify_account_type: str = "2"
+        self._verify_mobile_phone = ""
+        self._sms_error_detail = ""
         self._captcha_url = ""
         self._honor_session: dict = {}
 
@@ -369,38 +372,78 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         targets = self._honor.parse_verify_targets(resp)
         if targets:
             t0 = targets[0]
+            # Honor auth dialog uses masked name as mobilePhone / verifyUserAccount
             raw_name = str(
                 t0.get("userAccount")
                 or t0.get("name")
                 or t0.get("account")
                 or self._honor_account
             )
-            # Honor may return masked "007890******29" — keep original login for SMS API
-            self._verify_user_account = (
-                self._honor_account if "*" in raw_name else raw_name
-            )
+            self._verify_mobile_phone = raw_name
+            self._verify_user_account = raw_name
             self._verify_account_type = str(
                 t0.get("accountType") or t0.get("authAccountType") or "2"
             )
             already_sent = int(t0.get("sent") or 0) == 1
         else:
+            self._verify_mobile_phone = self._honor_account
             self._verify_user_account = self._honor_account
             self._verify_account_type = "2"
             already_sent = False
 
+        self._sms_error_detail = ""
         if not already_sent:
-            sms_resp = await asyncio.to_thread(
-                self._honor.request_sms_code,
-                self._verify_user_account or self._honor_account,
-                calling_code=self._honor_calling_code,
-                captcha_validate=self._captcha_validate or None,
-                captcha_trans_no=self._captcha_trans_no or None,
-            )
-            if sms_resp.get("pageToken"):
-                self._honor.page_token = str(sms_resp["pageToken"])
-            if str(sms_resp.get("isSuccess")) not in ("1", "true", "True"):
-                _LOGGER.warning("getSMSAuthCode: %s", sms_resp)
+            return await self._async_honor_request_sms()
         return await self.async_step_honor_sms()
+
+    async def _async_honor_request_sms(self) -> FlowResult:
+        """Call getSMSCodeV3 (operType 8) like Honor risk auth dialog."""
+        assert self._honor is not None
+        sms_resp = await asyncio.to_thread(
+            self._honor.request_sms_code,
+            self._honor_account,
+            mobile_phone=self._verify_mobile_phone or self._honor_account,
+            account_type=self._verify_account_type or "2",
+            calling_code=self._honor_calling_code,
+            captcha_validate=self._captcha_validate or None,
+            captcha_trans_no=self._captcha_trans_no or None,
+        )
+        if sms_resp.get("pageToken"):
+            self._honor.page_token = str(sms_resp["pageToken"])
+        if str(sms_resp.get("isSuccess")) not in ("1", "true", "True"):
+            detail = str(
+                sms_resp.get("errorDesc")
+                or sms_resp.get("errorCode")
+                or sms_resp
+            )
+            _LOGGER.warning("Honor SMS send failed: %s", detail)
+            self._sms_error_detail = _error_detail(
+                HonorIdError(
+                    detail,
+                    error_code=str(sms_resp.get("errorCode") or ""),
+                    data=sms_resp,
+                )
+            )
+        else:
+            self._sms_error_detail = ""
+        errors: dict[str, str] = {}
+        if self._sms_error_detail:
+            errors["base"] = "sms_send_failed"
+        dest = self._verify_mobile_phone or self._honor_account or "…"
+        return self.async_show_form(
+            step_id="honor_sms",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SMS_CODE): str,
+                    vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "phone_hint": dest,
+                "error_detail": self._sms_error_detail or "",
+            },
+        )
 
     async def async_step_honor_sms(
         self, user_input: dict[str, Any] | None = None
@@ -408,49 +451,78 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             assert self._honor is not None
+            if user_input.get(CONF_RESEND_SMS):
+                return await self._async_honor_request_sms()
             code = (user_input.get(CONF_SMS_CODE) or "").strip()
-            try:
-                # Prefer password + two-step SMS (what AI Space asks for)
-                resp = await asyncio.to_thread(
-                    self._honor.login_password,
-                    self._honor_account,
-                    self._honor_password,
-                    captcha_validate=self._captcha_validate or None,
-                    captcha_trans_no=self._captcha_trans_no or None,
-                    two_step_verify_code=code,
-                    verify_user_account=self._verify_user_account
-                    or self._honor_account,
-                    verify_account_type=self._verify_account_type,
-                    op_type=6,
-                )
-                if str(resp.get("isSuccess")) not in ("1", "true", "True"):
-                    # Fallback: SMS-only login
+            if not code:
+                errors["base"] = "invalid_sms"
+            else:
+                try:
+                    # Risk second-auth: opType=1 + masked verifyUserAccount
                     resp = await asyncio.to_thread(
-                        self._honor.login_sms,
+                        self._honor.login_password,
                         self._honor_account,
-                        code,
-                        calling_code=self._honor_calling_code,
+                        self._honor_password,
                         captcha_validate=self._captcha_validate or None,
                         captcha_trans_no=self._captcha_trans_no or None,
+                        two_step_verify_code=code,
+                        verify_user_account=self._verify_user_account
+                        or self._honor_account,
+                        verify_account_type=self._verify_account_type,
+                        op_type=1,
                     )
-                if str(resp.get("isSuccess")) not in ("1", "true", "True"):
-                    raise HonorIdError(
-                        resp.get("errorDesc") or "SMS login failed",
-                        error_code=str(resp.get("errorCode") or ""),
-                        data=resp,
-                    )
-                return await self._async_honor_finish(resp)
-            except HonorIdError as err:
-                _LOGGER.warning("Honor SMS step failed: %s", err)
-                errors["base"] = _classify_honor_error(err)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Honor SMS step failed")
-                errors["base"] = "unknown"
+                    if str(resp.get("isSuccess")) not in ("1", "true", "True"):
+                        # Alternate dialog path uses opType=6
+                        resp = await asyncio.to_thread(
+                            self._honor.login_password,
+                            self._honor_account,
+                            self._honor_password,
+                            captcha_validate=self._captcha_validate or None,
+                            captcha_trans_no=self._captcha_trans_no or None,
+                            two_step_verify_code=code,
+                            verify_user_account=self._verify_user_account
+                            or self._honor_account,
+                            verify_account_type=self._verify_account_type,
+                            op_type=6,
+                        )
+                    if str(resp.get("isSuccess")) not in ("1", "true", "True"):
+                        resp = await asyncio.to_thread(
+                            self._honor.login_sms,
+                            self._honor_account,
+                            code,
+                            calling_code=self._honor_calling_code,
+                            captcha_validate=self._captcha_validate or None,
+                            captcha_trans_no=self._captcha_trans_no or None,
+                        )
+                    if str(resp.get("isSuccess")) not in ("1", "true", "True"):
+                        raise HonorIdError(
+                            resp.get("errorDesc") or "SMS login failed",
+                            error_code=str(resp.get("errorCode") or ""),
+                            data=resp,
+                        )
+                    return await self._async_honor_finish(resp)
+                except HonorIdError as err:
+                    _LOGGER.warning("Honor SMS step failed: %s", err)
+                    errors["base"] = _classify_honor_error(err)
+                    self._sms_error_detail = _error_detail(err)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("Honor SMS step failed")
+                    errors["base"] = "unknown"
 
+        dest = self._verify_mobile_phone or self._honor_account or "…"
         return self.async_show_form(
             step_id="honor_sms",
-            data_schema=vol.Schema({vol.Required(CONF_SMS_CODE): str}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SMS_CODE): str,
+                    vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                }
+            ),
             errors=errors,
+            description_placeholders={
+                "phone_hint": dest,
+                "error_detail": self._sms_error_detail or "",
+            },
         )
 
     async def _async_honor_finish(self, login_resp: dict[str, Any]) -> FlowResult:
@@ -499,15 +571,33 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 err_key = _classify_honor_error(err)
             return self.async_show_form(
                 step_id="honor_sms",
-                data_schema=vol.Schema({vol.Required(CONF_SMS_CODE): str}),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_SMS_CODE): str,
+                        vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                    }
+                ),
                 errors={"base": err_key},
+                description_placeholders={
+                    "phone_hint": self._verify_mobile_phone or self._honor_account or "…",
+                    "error_detail": _error_detail(err),
+                },
             )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Honor finish failed")
             return self.async_show_form(
                 step_id="honor_sms",
-                data_schema=vol.Schema({vol.Required(CONF_SMS_CODE): str}),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_SMS_CODE): str,
+                        vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                    }
+                ),
                 errors={"base": "unknown"},
+                description_placeholders={
+                    "phone_hint": self._verify_mobile_phone or self._honor_account or "…",
+                    "error_detail": "",
+                },
             )
 
     # ---- Grit password -----------------------------------------------

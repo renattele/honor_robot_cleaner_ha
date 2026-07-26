@@ -26,9 +26,10 @@
       },
       "honor_sms": {
         "title": "SMS code",
-        "description": "Enter the SMS code sent to your phone.",
+        "description": "Enter the SMS code sent to {phone_hint}. If nothing arrives, enable «Resend SMS» and submit.\n\n{error_detail}",
         "data": {
-          "sms_code": "SMS code"
+          "sms_code": "SMS code",
+          "resend_sms": "Resend SMS"
         }
       },
       "login": {
@@ -59,6 +60,7 @@
       "cannot_connect": "Network unreachable to Grit/Honor ID (DNS/firewall/SSL).",
       "invalid_auth": "Cloud rejected login (credentials/token/session).",
       "invalid_sms": "Invalid or expired SMS code",
+      "sms_send_failed": "Could not send SMS — see details / Home Assistant log",
       "captcha_required": "Solve the captcha in the browser link first, then continue",
       "invalid_token_format": "Invalid token / plugin_account format",
       "no_devices": "No robots found on this account",

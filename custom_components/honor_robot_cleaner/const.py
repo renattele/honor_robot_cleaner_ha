@@ -17,6 +17,7 @@ CONF_LANGUAGE = "language"
 CONF_AUTH_MODE = "auth_mode"
 CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 CONF_SMS_CODE = "sms_code"
+CONF_RESEND_SMS = "resend_sms"
 CONF_HONOR_SESSION = "honor_session"
 
 AUTH_MODE_PASSWORD = "password"

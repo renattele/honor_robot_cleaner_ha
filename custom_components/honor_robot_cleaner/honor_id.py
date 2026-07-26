@@ -126,6 +126,7 @@ class HonorIdClient:
         self.login_url = ""
         self.req_client_type = REQ_CLIENT_TYPE
         self.login_channel = LOGIN_CHANNEL
+        self.site_id = ""
         self._referer = f"{self.cas_host}/CAS/mobile/standard/wapLogin.html"
         self.last_captcha: CaptchaChallenge | None = None
         self._password = ""
@@ -339,10 +340,23 @@ class HonorIdClient:
         self.login_url = cfg.get("loginUrl") or wap.split("?", 1)[0]
         self.req_client_type = str(cfg.get("reqClientType") or REQ_CLIENT_TYPE)
         self.login_channel = str(cfg.get("loginChannel") or LOGIN_CHANNEL)
+        self.site_id = str(
+            cfg.get("currentSiteID")
+            or cfg.get("curAccountSiteID")
+            or cfg.get("siteID")
+            or self.site_id
+            or ""
+        )
+        # Also present as JS global outside JSON config
+        if not self.site_id:
+            m_site = re.search(r'currentSiteID\s*=\s*"([^"]+)"', html)
+            if m_site:
+                self.site_id = m_site.group(1)
         _LOGGER.debug(
-            "Honor CAS ready pageToken=%s… service=%s",
+            "Honor CAS ready pageToken=%s… service=%s siteID=%s",
             self.page_token[:12],
             self.service[:60],
+            self.site_id,
         )
 
     @staticmethod
@@ -442,12 +456,15 @@ class HonorIdClient:
             data["randomCode"] = captcha_validate
             data["authcode"] = captcha_validate
         if two_step_verify_code:
+            # Risk / second-auth (Honor wapLogin): opType=1 + twoStepVerifyCode.
+            # opType=6 is a different dialog path; keep override for callers.
             data["twoStepVerifyCode"] = two_step_verify_code
+            data["authCode"] = two_step_verify_code
             if verify_user_account:
                 data["verifyUserAccount"] = verify_user_account
             if verify_account_type is not None:
                 data["verifyAccountType"] = str(verify_account_type)
-            data["opType"] = op_type if op_type is not None else 6
+            data["opType"] = op_type if op_type is not None else 1
         elif op_type is not None:
             data["opType"] = op_type
 
@@ -459,24 +476,40 @@ class HonorIdClient:
         self,
         user_account: str,
         *,
+        mobile_phone: str | None = None,
+        account_type: str | int = 2,
+        site_id: str | None = None,
         calling_code: str = "007",
         captcha_validate: str | None = None,
         captcha_trans_no: str | None = None,
-        oper_type: str = "17",
-        sms_req_type: str = "2",
+        oper_type: str = "8",
+        sms_req_type: str = "6",
     ) -> dict[str, Any]:
-        """Request SMS for password 2FA / SMS login (operType 17 needs captcha)."""
+        """Request SMS for password risk / 2FA (Honor auth dialog).
+
+        Honor CAS uses ``getSMSCodeV3`` with ``operType=8`` and ``smsReqType=6``.
+        ``userAccount`` is the login id; ``mobilePhone`` is often the *masked*
+        destination from ``authCodeSentList[].name`` (e.g. ``007890******29``).
+        Legacy SMS-login uses ``getSMSAuthCode`` / operType 17 — kept as fallback.
+        """
         if not self.page_token:
             self.bootstrap()
+        login_account = user_account.strip()
+        dest = (mobile_phone or login_account).strip()
+        sid = (site_id or self.site_id or "").strip()
         data: dict[str, Any] = {
-            "userAccount": user_account.strip(),
+            "userAccount": login_account,
+            "accountType": str(account_type),
+            "mobilePhone": dest,
             "reqClientType": self.req_client_type,
             "loginChannel": self.login_channel,
-            "operType": oper_type,
-            "smsReqType": sms_req_type,
+            "operType": str(oper_type),
+            "smsReqType": str(sms_req_type),
+            "languageCode": self.lang,
             "service": self.service,
-            "session_code_key": "sms_login_session_ramdom_code_key",
         }
+        if sid:
+            data["siteID"] = sid
         trans = captcha_trans_no or (
             self.last_captcha.captcha_trans_no if self.last_captcha else ""
         )
@@ -485,7 +518,32 @@ class HonorIdClient:
         if captcha_validate:
             data["randomCode"] = captcha_validate
             data["authcode"] = captcha_validate
-        return self._ajax(AJAX_IDMW, "getSMSAuthCode", data)
+
+        resp = self._ajax(AJAX_IDMW, "getSMSCodeV3", data)
+        if str(resp.get("isSuccess")) in ("1", "true", "True"):
+            return resp
+        # Fallback: older SMS-login endpoint (operType 17, needs captcha type 6)
+        _LOGGER.warning(
+            "getSMSCodeV3 failed (%s); trying getSMSAuthCode",
+            resp.get("errorCode") or resp.get("errorDesc") or resp,
+        )
+        legacy: dict[str, Any] = {
+            "userAccount": login_account,
+            "reqClientType": self.req_client_type,
+            "loginChannel": self.login_channel,
+            "operType": "17",
+            "smsReqType": "2",
+            "service": self.service,
+            "session_code_key": "sms_login_session_ramdom_code_key",
+        }
+        if trans:
+            legacy["captchaTransNo"] = trans
+        if captcha_validate:
+            legacy["randomCode"] = captcha_validate
+            legacy["authcode"] = captcha_validate
+        if sid:
+            legacy["siteID"] = sid
+        return self._ajax(AJAX_IDMW, "getSMSAuthCode", legacy)
 
     def login_sms(
         self,
@@ -646,12 +704,31 @@ class HonorIdClient:
                 ed = resp.get("errorDesc")
                 if isinstance(ed, str) and ed.strip().startswith("{"):
                     parsed = json.loads(ed)
-                    for key in ("verifyAccountList", "twoFactorList"):
+                    for key in (
+                        "verifyAccountList",
+                        "twoFactorList",
+                        "authCodeSentList",
+                    ):
                         if parsed.get(key):
                             candidates = list(parsed[key])
                             break
+                elif isinstance(ed, dict):
+                    for key in (
+                        "verifyAccountList",
+                        "twoFactorList",
+                        "authCodeSentList",
+                    ):
+                        if ed.get(key):
+                            candidates = list(ed[key])
+                            break
             except Exception:  # noqa: BLE001
                 pass
+        # siteID / pageToken often travel with the risk payload
+        for key in ("siteID", "curAccountSiteID", "currentSiteID"):
+            if resp.get(key) and not self.site_id:
+                self.site_id = str(resp[key])
+        if resp.get("pageToken"):
+            self.page_token = str(resp["pageToken"])
         out: list[dict[str, Any]] = []
         for item in candidates:
             if isinstance(item, dict):

@@ -26,9 +26,10 @@
       },
       "honor_sms": {
         "title": "Код из SMS",
-        "description": "Введи код из SMS, который пришёл на телефон.",
+        "description": "Введи код из SMS на {phone_hint}. Если SMS нет — включи «Отправить SMS ещё раз» и нажми Submit.\n\n{error_detail}",
         "data": {
-          "sms_code": "Код из SMS"
+          "sms_code": "Код из SMS",
+          "resend_sms": "Отправить SMS ещё раз"
         }
       },
       "login": {
@@ -59,6 +60,7 @@
       "cannot_connect": "Нет сети до Grit/Honor ID (DNS/firewall/SSL).",
       "invalid_auth": "Облако отклонило вход (логин/пароль/токен/сессия).",
       "invalid_sms": "Неверный или просроченный код из SMS",
+      "sms_send_failed": "Не удалось отправить SMS — смотри детали / лог Home Assistant",
       "captcha_required": "Сначала пройди капчу по ссылке в браузере, затем продолжай",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "no_devices": "На аккаунте нет роботов",
