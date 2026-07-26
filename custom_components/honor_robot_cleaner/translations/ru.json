@@ -4,13 +4,38 @@
       "user": {
         "title": "Honor Robot Cleaner",
         "menu_options": {
-          "login": "Войти по телефону / паролю",
+          "honor": "Honor AI Space (телефон + пароль + SMS)",
+          "login": "Пароль YuGong (аккаунт RobotCleaner)",
           "token": "Дополнительно: вставить облачный токен"
+        }
+      },
+      "honor": {
+        "title": "Вход Honor AI Space",
+        "description": "Те же логин и пароль, что у Honor ID. Device ID — thing_name. После входа сохраняется сессия Honor, и JWT Grit обновляется сам без телефона.",
+        "data": {
+          "account": "Телефон",
+          "password": "Пароль Honor ID",
+          "device_id": "Device ID (thing_name)",
+          "calling_code": "Код страны",
+          "sub_type": "Product sub_type",
+          "language": "Язык",
+          "name": "Имя в Home Assistant"
+        }
+      },
+      "honor_captcha": {
+        "title": "Капча",
+        "description": "Открой ссылку (нужна сессия Home Assistant), пройди капчу Honor, затем нажми «Отправить»: {captcha_url}"
+      },
+      "honor_sms": {
+        "title": "Код из SMS",
+        "description": "Введи код из SMS, который пришёл на телефон.",
+        "data": {
+          "sms_code": "Код из SMS"
         }
       },
       "login": {
         "title": "Аккаунт YuGong / Grit",
-        "description": "Аккаунт облака RobotCleaner (телефон без кода страны, для РФ например 9XXXXXXXXX). Если вход был только через Honor AI Space и пароль не задавался — задай пароль в приложении Robot Sweeper или используй режим токена.",
+        "description": "Парольный аккаунт RobotCleaner. Если входишь только через Honor ID — выбери «Honor AI Space».",
         "data": {
           "account": "Телефон / email",
           "password": "Пароль",
@@ -21,7 +46,7 @@
       },
       "token": {
         "title": "Облачный токен",
-        "description": "Вставь JWT или полную строку из plugin_account.xml (device;jwt;region;lang;exp;https;wss).",
+        "description": "Вставь JWT или строку plugin_account. Режим только токена сам не обновляется — лучше вход Honor AI Space.",
         "data": {
           "token": "Токен",
           "device_id": "Device ID (thing_name)",
@@ -40,43 +65,42 @@
       }
     },
     "error": {
-      "cannot_connect": "Не удалось достучаться до облака Grit",
-      "invalid_auth": "Неверный логин или пароль",
+      "cannot_connect": "Не удалось достучаться до облака / Honor ID",
+      "invalid_auth": "Вход отклонён (неверный логин/пароль, капча или просроченная сессия).",
+      "invalid_sms": "Неверный или просроченный код из SMS",
+      "captcha_required": "Сначала пройди капчу по ссылке в браузере, затем продолжай",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "no_devices": "На аккаунте нет роботов",
       "unknown": "Неожиданная ошибка"
     },
     "abort": {
-      "already_configured": "Этот робот уже добавлен"
+      "already_configured": "Этот робот уже добавлен",
+      "no_devices": "На аккаунте нет роботов"
     }
   },
   "options": {
     "step": {
+      "refresh": {
+        "title": "Токен / обновление",
+        "description": "В режиме Honor AI Space JWT обновляется сам через сохранённую сессию Honor. Можно вставить новый токен или оставить пустым и нажать Submit для принудительного silent refresh.",
+        "data": {
+          "token": "Токен (опционально)"
+        }
+      },
       "password": {
         "title": "Обновить вход",
-        "description": "Повторный вход по телефону/паролю. Пока сохранены учётные данные, токен обновляется сам.",
+        "description": "Повторный вход по телефону/паролю YuGong.",
         "data": {
           "account": "Телефон / email",
           "password": "Пароль",
           "calling_code": "Код страны",
           "language": "Язык"
         }
-      },
-      "token": {
-        "title": "Обновить токен",
-        "description": "Вставь свежий JWT, если используешь режим токена.",
-        "data": {
-          "token": "Токен",
-          "device_id": "Device ID (thing_name)",
-          "region": "Регион",
-          "base_url": "Базовый URL API",
-          "sub_type": "Product sub_type"
-        }
       }
     },
     "error": {
       "cannot_connect": "Не удалось достучаться до облака Grit",
-      "invalid_auth": "Неверный логин или пароль",
+      "invalid_auth": "Облако отклонило вход (неверный логин/пароль или просроченный/отозванный токен).",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "unknown": "Неожиданная ошибка"
     }

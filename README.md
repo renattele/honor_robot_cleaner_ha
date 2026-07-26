@@ -14,25 +14,26 @@ Or add this repository in HACS as a custom integration.
 
 ## Sign-in
 
-### Recommended: phone + password
+### Honor AI Space (phone + password + SMS) — recommended
 
-1. Choose **Sign in with phone / password**.
-2. Enter phone **without** country code (Russia: `9XXXXXXXXX`), password, country calling code (`007` for +7).
-3. Pick the robot if several are on the account.
+Same flow as Honor ID in AI Space:
 
-Credentials are stored in the config entry. The integration **re-logs in automatically** when the JWT is about to expire (~every 24h).
+1. Enter Honor phone, password, and robot **Device ID** (`thing_name`)
+2. Open the captcha link in a browser (logged into HA), solve YiDun captcha
+3. Enter the SMS code from your phone
+4. Integration exchanges Honor OAuth `code` → Grit `honor_card_login` → JWT
 
-If you only ever used Honor AI Space and never set a RobotCleaner/Grit password, set one in the **Robot Sweeper** app (same cloud) or use the token mode below.
+Device ID is the robot `thing_name` (first field of the Magichome `plugin_account` token before `;`, if you already have one).
 
-### Advanced: paste token
+Grit JWT lasts ~24h. After Honor AI Space setup, HA stores Honor SSO cookies and **refreshes the JWT automatically** (silent OAuth → `honor_card_login`) — no phone required. If the Honor session itself expires, re-run the Honor login flow once.
 
-Paste JWT or the full `plugin_account.xml` string from a rooted phone:
+### Paste cloud token (advanced)
 
-```text
-/data/data/com.hihonor.magichome/shared_prefs/plugin_account.xml
-```
+Paste a JWT or full `plugin_account` token string. **No auto-refresh** in this mode — prefer Honor AI Space login.
 
-Token mode does **not** auto-refresh; update it in **Configure** when it expires.
+### YuGong password (RobotCleaner account only)
+
+Separate from Honor ID. Honor-only accounts get `UserNotExist`.
 
 ## Entities
 

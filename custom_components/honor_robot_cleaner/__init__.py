@@ -10,10 +10,13 @@ from homeassistant.core import HomeAssistant
 
 from .api import GritApiClient
 from .const import (
+    AUTH_MODE_TOKEN,
     CONF_ACCOUNT,
+    CONF_AUTH_MODE,
     CONF_BASE_URL,
     CONF_CALLING_CODE,
     CONF_DEVICE_ID,
+    CONF_HONOR_SESSION,
     CONF_LANGUAGE,
     CONF_PASSWORD,
     CONF_REGION,
@@ -34,6 +37,30 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.VACUUM, Platform.SENSOR]
 
 
+async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
+    """Register HTTP views used by Honor ID captcha during config flow."""
+    from .http_captcha import async_register_captcha_views
+
+    hass.data.setdefault(DOMAIN, {})
+    async_register_captcha_views(hass)
+    return True
+
+
+def _persist_client_session(entry: ConfigEntry, client: GritApiClient) -> dict:
+    data = {
+        **entry.data,
+        CONF_TOKEN: client.token,
+        CONF_REGION: client.region,
+        CONF_BASE_URL: client.base_url,
+        CONF_TOKEN_EXPIRES_AT: client.token_expires_at,
+        CONF_DEVICE_ID: client.device_id or entry.data.get(CONF_DEVICE_ID),
+        CONF_AUTH_MODE: client.auth_mode or entry.data.get(CONF_AUTH_MODE),
+    }
+    if client.honor_session:
+        data[CONF_HONOR_SESSION] = client.honor_session
+    return data
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
     data = {**entry.data, **entry.options}
@@ -48,25 +75,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         calling_code=data.get(CONF_CALLING_CODE, DEFAULT_CALLING_CODE),
         language=data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
         token_expires_at=data.get(CONF_TOKEN_EXPIRES_AT),
+        auth_mode=data.get(CONF_AUTH_MODE, AUTH_MODE_TOKEN),
+        honor_session=data.get(CONF_HONOR_SESSION) or {},
     )
 
-    if client.account and client.password:
+    try:
         refreshed = await client.async_ensure_token()
         if refreshed:
             hass.config_entries.async_update_entry(
-                entry,
-                data={
-                    **entry.data,
-                    CONF_TOKEN: client.token,
-                    CONF_REGION: client.region,
-                    CONF_BASE_URL: client.base_url,
-                    CONF_TOKEN_EXPIRES_AT: client.token_expires_at,
-                    CONF_ACCOUNT: client.account,
-                    CONF_PASSWORD: client.password,
-                    CONF_CALLING_CODE: client.calling_code,
-                    CONF_LANGUAGE: client.language,
-                },
+                entry, data=_persist_client_session(entry, client)
             )
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "Initial token refresh skipped/failed; will retry on poll",
+            exc_info=True,
+        )
 
     coordinator = HonorRobotCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()

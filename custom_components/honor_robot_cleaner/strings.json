@@ -4,13 +4,38 @@
       "user": {
         "title": "Honor Robot Cleaner",
         "menu_options": {
-          "login": "Sign in with phone / password",
+          "honor": "Honor AI Space (phone + password + SMS)",
+          "login": "YuGong password (RobotCleaner account)",
           "token": "Advanced: paste cloud token"
+        }
+      },
+      "honor": {
+        "title": "Honor AI Space login",
+        "description": "Same credentials as Honor ID / AI Space. Device ID is thing_name from plugin_account. After login, Honor session cookies are stored so the Grit JWT can refresh automatically without a phone.",
+        "data": {
+          "account": "Phone",
+          "password": "Honor ID password",
+          "device_id": "Device ID (thing_name)",
+          "calling_code": "Country calling code",
+          "sub_type": "Product sub_type",
+          "language": "Language",
+          "name": "Name in Home Assistant"
+        }
+      },
+      "honor_captcha": {
+        "title": "Captcha",
+        "description": "Open this URL while logged into Home Assistant, solve the Honor captcha, then press Submit: {captcha_url}"
+      },
+      "honor_sms": {
+        "title": "SMS code",
+        "description": "Enter the SMS code sent to your phone.",
+        "data": {
+          "sms_code": "SMS code"
         }
       },
       "login": {
         "title": "YuGong / Grit account",
-        "description": "Use the RobotCleaner cloud account (phone without country code, e.g. 9XXXXXXXXX for Russia). Honor AI Space-only accounts that never set a password may need the Robot Sweeper app password or the advanced token option.",
+        "description": "RobotCleaner cloud password account (phone without country code). Prefer «Honor AI Space» if you only sign in via Honor ID.",
         "data": {
           "account": "Phone / email",
           "password": "Password",
@@ -21,7 +46,7 @@
       },
       "token": {
         "title": "Cloud token",
-        "description": "Paste JWT or full plugin_account.xml token string (device;jwt;region;lang;exp;https;wss).",
+        "description": "Paste JWT or full plugin_account.xml token string. Token-only mode does not auto-refresh — prefer Honor AI Space login.",
         "data": {
           "token": "Token",
           "device_id": "Device ID (thing_name)",
@@ -40,43 +65,42 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach Grit cloud",
-      "invalid_auth": "Invalid account or password",
+      "cannot_connect": "Could not reach cloud / Honor ID",
+      "invalid_auth": "Login rejected (bad credentials, captcha, or expired session).",
+      "invalid_sms": "Invalid or expired SMS code",
+      "captcha_required": "Solve the captcha in the browser link first, then continue",
       "invalid_token_format": "Invalid token / plugin_account format",
       "no_devices": "No robots found on this account",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This robot is already configured"
+      "already_configured": "This robot is already configured",
+      "no_devices": "No robots found on this account"
     }
   },
   "options": {
     "step": {
+      "refresh": {
+        "title": "Token / refresh",
+        "description": "Honor AI Space mode refreshes the Grit JWT automatically via the stored Honor session. Paste a new token only if needed, or leave blank and Submit to force a silent refresh.",
+        "data": {
+          "token": "Token (optional paste)"
+        }
+      },
       "password": {
         "title": "Update login",
-        "description": "Re-authenticate with phone/password. Token is refreshed automatically while credentials are stored.",
+        "description": "Re-authenticate with YuGong phone/password.",
         "data": {
           "account": "Phone / email",
           "password": "Password",
           "calling_code": "Country calling code",
           "language": "Language"
         }
-      },
-      "token": {
-        "title": "Update token",
-        "description": "Paste a fresh JWT if you use token mode.",
-        "data": {
-          "token": "Token",
-          "device_id": "Device ID (thing_name)",
-          "region": "Region",
-          "base_url": "API base URL",
-          "sub_type": "Product sub_type"
-        }
       }
     },
     "error": {
       "cannot_connect": "Could not reach Grit cloud",
-      "invalid_auth": "Invalid account or password",
+      "invalid_auth": "Cloud rejected login (bad credentials or expired/revoked token).",
       "invalid_token_format": "Invalid token / plugin_account format",
       "unknown": "Unexpected error"
     }
