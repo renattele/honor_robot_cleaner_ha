@@ -183,6 +183,7 @@ WWW_CAPTCHA_HTML = """<!DOCTYPE html>
     body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 32rem; }
     .ok { color: #0a7; margin-top: 1rem; }
     .err { color: #c33; margin-top: 1rem; }
+    .hint { color: #666; margin-top: 1rem; }
     #ne-captcha { margin-top: 1rem; min-height: 40px; }
   </style>
 </head>
@@ -190,16 +191,29 @@ WWW_CAPTCHA_HTML = """<!DOCTYPE html>
   <h1>Honor ID</h1>
   <p>Пройди проверку — после успеха визард Home Assistant продолжит сам.</p>
   <div id="ne-captcha"></div>
-  <div id="msg"></div>
+  <div id="msg" class="hint">Загрузка капчи…</div>
   <script>
     const params = new URLSearchParams(location.search);
     const WEBHOOK = params.get('webhook') || '';
     const CH = {
       captcha_id: params.get('captcha_id') || '',
-      captcha_server: params.get('captcha_server') || 'captcha-drru.platform.hihonorcloud.com',
-      captcha_static_server: params.get('captcha_static_server') || 'captcha-image-drru.platform.hihonorcloud.com',
+      captcha_server: (params.get('captcha_server') || 'captcha-drru.platform.hihonorcloud.com').replace(/^https?:\\/\\//, ''),
+      captcha_static_server: (params.get('captcha_static_server') || 'captcha-image-drru.platform.hihonorcloud.com').replace(/^https?:\\/\\//, ''),
     };
     const msg = document.getElementById('msg');
+    function fmtErr(err) {
+      if (err == null) return 'unknown';
+      if (typeof err === 'string') return err;
+      if (err instanceof Error) return err.message || String(err);
+      try {
+        if (err.message) return String(err.message);
+        if (err.msg) return String(err.msg);
+        if (err.errorDesc) return String(err.errorDesc);
+        return JSON.stringify(err);
+      } catch (e) {
+        return Object.prototype.toString.call(err);
+      }
+    }
     function loadScript(src) {
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
@@ -217,29 +231,50 @@ WWW_CAPTCHA_HTML = """<!DOCTYPE html>
       try {
         if (!CH.captcha_id) throw new Error('captcha_id missing — restart Honor login');
         if (!WEBHOOK) throw new Error('webhook missing — restart Honor login');
-        const staticBase = 'https://' + CH.captcha_static_server.replace(/^https?:\\/\\//, '');
+        const staticBase = 'https://' + CH.captcha_static_server;
         await loadScript(staticBase + '/load.min.js');
-        if (!window.initNECaptcha) throw new Error('initNECaptcha missing');
+        if (!window.initNECaptcha) throw new Error('initNECaptcha missing after loading ' + staticBase + '/load.min.js');
+        // Signature: initNECaptcha(config, onload, onerror)
+        // Second arg is SUCCESS (instance), not error — that caused "[object Object]".
         window.initNECaptcha({
           captchaId: CH.captcha_id,
           element: '#ne-captcha',
           mode: 'popup',
           width: '320px',
-          apiServer: CH.captcha_server.replace(/^https?:\\/\\//, ''),
-          staticServer: CH.captcha_static_server.replace(/^https?:\\/\\//, ''),
+          protocol: 'https',
+          apiServer: CH.captcha_server,
+          staticServer: CH.captcha_static_server,
           onVerify: async function(err, data) {
-            if (err) { msg.className='err'; msg.textContent='Капча не пройдена'; return; }
+            if (err) {
+              msg.className = 'err';
+              msg.textContent = 'Капча не пройдена: ' + fmtErr(err);
+              return;
+            }
             const validate = data && data.validate;
-            if (!validate) { msg.className='err'; msg.textContent='Пустой validate'; return; }
-            msg.className='ok';
-            msg.textContent='Принято, возвращаемся в визард…';
+            if (!validate) {
+              msg.className = 'err';
+              msg.textContent = 'Пустой validate';
+              return;
+            }
+            msg.className = 'ok';
+            msg.textContent = 'Принято, возвращаемся в визард…';
             await finish(validate);
           }
+        }, function onload(instance) {
+          msg.className = 'hint';
+          msg.textContent = 'Капча готова — нажми кнопку проверки.';
+          try {
+            if (instance && typeof instance.verify === 'function') {
+              instance.verify();
+            }
+          } catch (e) { /* popup may open on click only */ }
         }, function onerror(err) {
-          msg.className='err'; msg.textContent='Ошибка капчи: ' + err;
+          msg.className = 'err';
+          msg.textContent = 'Ошибка капчи: ' + fmtErr(err);
         });
       } catch (e) {
-        msg.className='err'; msg.textContent=String(e);
+        msg.className = 'err';
+        msg.textContent = fmtErr(e);
       }
     }
     main();
