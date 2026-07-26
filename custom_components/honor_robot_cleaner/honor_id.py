@@ -100,6 +100,18 @@ def mobile_phone_e164_honor(account: str, calling_code: str) -> str:
     return f"{cc}{national}"
 
 
+def honor_account_type(account: str) -> int:
+    """Honor getAccountType: 1=email, 2=phone (incl. masked), 0=unknown."""
+    if not account:
+        return 0
+    if "@" in account:
+        return 1
+    # Same regex as Honor CAS JS getAccountType
+    if re.match(r"^([0-9]|\+)\d+(\*)*\d+$", account.strip()):
+        return 2
+    return 0
+
+
 class HonorIdClient:
     """Cookie + page-token session against Honor CAS (RU site by default)."""
 
@@ -477,7 +489,7 @@ class HonorIdClient:
         user_account: str,
         *,
         mobile_phone: str | None = None,
-        account_type: str | int = 2,
+        account_type: str | int | None = None,
         site_id: str | None = None,
         calling_code: str = "007",
         captcha_validate: str | None = None,
@@ -490,16 +502,26 @@ class HonorIdClient:
         Honor CAS uses ``getSMSCodeV3`` with ``operType=8`` and ``smsReqType=6``.
         ``userAccount`` is the login id; ``mobilePhone`` is often the *masked*
         destination from ``authCodeSentList[].name`` (e.g. ``007890******29``).
-        Legacy SMS-login uses ``getSMSAuthCode`` / operType 17 — kept as fallback.
         """
         if not self.page_token:
             self.bootstrap()
         login_account = user_account.strip()
         dest = (mobile_phone or login_account).strip()
+        # Unmasked national numbers → Honor expects 00x + national (like list names)
+        if dest and "*" not in dest and "@" not in dest:
+            dest = mobile_phone_e164_honor(dest, calling_code)
+        at = honor_account_type(dest) or honor_account_type(login_account)
+        if account_type is not None and str(account_type) not in ("", "0"):
+            try:
+                at = int(account_type)
+            except (TypeError, ValueError):
+                at = at or 2
+        if at not in (1, 2, 5, 6):
+            at = 2
         sid = (site_id or self.site_id or "").strip()
         data: dict[str, Any] = {
             "userAccount": login_account,
-            "accountType": str(account_type),
+            "accountType": str(at),
             "mobilePhone": dest,
             "reqClientType": self.req_client_type,
             "loginChannel": self.login_channel,
@@ -519,21 +541,46 @@ class HonorIdClient:
             data["randomCode"] = captcha_validate
             data["authcode"] = captcha_validate
 
+        _LOGGER.info(
+            "Honor getSMSCodeV3 accountType=%s operType=%s mobile=%s user=%s",
+            at,
+            oper_type,
+            dest,
+            login_account,
+        )
         resp = self._ajax(AJAX_IDMW, "getSMSCodeV3", data)
         if str(resp.get("isSuccess")) in ("1", "true", "True"):
             return resp
-        # Fallback: older SMS-login endpoint (operType 17, needs captcha type 6)
+
+        # Retry once with siteID omitted (some sites reject unknown siteID)
+        if sid and str(resp.get("errorCode")) == "10000001":
+            data2 = dict(data)
+            data2.pop("siteID", None)
+            _LOGGER.warning(
+                "getSMSCodeV3 retry without siteID after %s",
+                resp.get("errorDesc") or resp.get("errorCode"),
+            )
+            resp2 = self._ajax(AJAX_IDMW, "getSMSCodeV3", data2)
+            if str(resp2.get("isSuccess")) in ("1", "true", "True"):
+                return resp2
+            resp = resp2
+
+        # Last resort: getSMSAuthCode — must include accountType (Honor 10000001 otherwise)
         _LOGGER.warning(
-            "getSMSCodeV3 failed (%s); trying getSMSAuthCode",
+            "getSMSCodeV3 failed (%s); trying getSMSAuthCode with accountType=%s",
             resp.get("errorCode") or resp.get("errorDesc") or resp,
+            at,
         )
         legacy: dict[str, Any] = {
             "userAccount": login_account,
+            "accountType": str(at),
+            "mobilePhone": dest,
             "reqClientType": self.req_client_type,
             "loginChannel": self.login_channel,
             "operType": "17",
             "smsReqType": "2",
             "service": self.service,
+            "languageCode": self.lang,
             "session_code_key": "sms_login_session_ramdom_code_key",
         }
         if trans:

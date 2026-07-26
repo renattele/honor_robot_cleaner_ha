@@ -41,6 +41,7 @@ from .const import (
     DEFAULT_REGION,
     DEFAULT_SUB_TYPE,
     DOMAIN,
+    INTEGRATION_VERSION,
 )
 from .api import (
     GritApiClient,
@@ -399,6 +400,10 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_honor_request_sms(self) -> FlowResult:
         """Call getSMSCodeV3 (operType 8) like Honor risk auth dialog."""
         assert self._honor is not None
+        _LOGGER.warning(
+            "Honor SMS send via integration %s (expect getSMSCodeV3, not getSMSAuthCode-only)",
+            INTEGRATION_VERSION,
+        )
         sms_resp = await asyncio.to_thread(
             self._honor.request_sms_code,
             self._honor_account,
@@ -417,11 +422,14 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 or sms_resp
             )
             _LOGGER.warning("Honor SMS send failed: %s", detail)
-            self._sms_error_detail = _error_detail(
-                HonorIdError(
-                    detail,
-                    error_code=str(sms_resp.get("errorCode") or ""),
-                    data=sms_resp,
+            self._sms_error_detail = (
+                f"[v{INTEGRATION_VERSION}] "
+                + _error_detail(
+                    HonorIdError(
+                        detail,
+                        error_code=str(sms_resp.get("errorCode") or ""),
+                        data=sms_resp,
+                    )
                 )
             )
         else:

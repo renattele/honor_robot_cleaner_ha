@@ -17,7 +17,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 CAPTCHA_STORE = "honor_captcha_sessions"
-PAGE_VERSION = "1.3.8"
+PAGE_VERSION = "1.3.12"
 
 
 def _store(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
