@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Honor Robot Cleaner",
+        "description": "Вставь JWT или полную строку из plugin_account.xml (device;jwt;region;lang;exp;https;wss). Device ID можно не указывать, если строка полная.",
+        "data": {
+          "token": "Токен",
+          "device_id": "Device ID (thing_name)",
+          "name": "Имя",
+          "region": "Регион",
+          "base_url": "Базовый URL API",
+          "sub_type": "Product sub_type"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось достучаться до облака Grit или получить статус",
+      "invalid_auth": "Токен отклонён",
+      "invalid_token_format": "Неверный формат токена / plugin_account",
+      "unknown": "Неожиданная ошибка"
+    },
+    "abort": {
+      "already_configured": "Этот робот уже добавлен"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Обновить учётные данные",
+        "description": "JWT живёт ~24 часа. Вставь свежий токен из plugin_account.xml Honor AI Space.",
+        "data": {
+          "token": "Токен",
+          "device_id": "Device ID (thing_name)",
+          "region": "Регион",
+          "base_url": "Базовый URL API",
+          "sub_type": "Product sub_type"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось достучаться до облака Grit или получить статус",
+      "invalid_token_format": "Неверный формат токена / plugin_account",
+      "unknown": "Неожиданная ошибка"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "domain": "honor_robot_cleaner",
+  "name": "Honor Robot Cleaner",
+  "codeowners": ["@renattele"],
+  "config_flow": true,
+  "documentation": "https://git.lxbx.ru/renattele/honor_robot_cleaner_ha",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://git.lxbx.ru/renattele/honor_robot_cleaner_ha/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

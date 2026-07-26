@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Honor Robot Cleaner",
+        "description": "Paste JWT token or full plugin_account token string (device;jwt;region;lang;exp;https;wss). Device ID is optional if the full string is used.",
+        "data": {
+          "token": "Token",
+          "device_id": "Device ID (thing_name)",
+          "name": "Name",
+          "region": "Region",
+          "base_url": "API base URL",
+          "sub_type": "Product sub_type"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach Grit cloud or device status failed",
+      "invalid_auth": "Token rejected",
+      "invalid_token_format": "Invalid token / plugin_account format",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This robot is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update credentials",
+        "description": "JWT expires about every 24 hours. Paste a fresh token from Honor AI Space plugin_account.xml.",
+        "data": {
+          "token": "Token",
+          "device_id": "Device ID (thing_name)",
+          "region": "Region",
+          "base_url": "API base URL",
+          "sub_type": "Product sub_type"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach Grit cloud or device status failed",
+      "invalid_token_format": "Invalid token / plugin_account format",
+      "unknown": "Unexpected error"
+    }
+  }
+}
