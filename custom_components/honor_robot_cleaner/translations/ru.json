@@ -1,14 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "Honor Robot Cleaner",
-        "menu_options": {
-          "honor": "Honor AI Space (телефон + пароль + SMS)",
-          "login": "Пароль YuGong (аккаунт RobotCleaner)",
-          "token": "Дополнительно: вставить облачный токен"
-        }
-      },
       "honor": {
         "title": "Вход Honor AI Space",
         "description": "Те же логин и пароль, что у Honor ID. После SMS один раз может понадобиться id робота (так требует Grit honor_card_login).\n\n{error_detail}",
@@ -37,25 +29,6 @@
         "description": "Grit для первого входа нужен id робота — тот же, который AI Space уже знает как cloud device id.\n\nRoot не нужен: Honor AI Space → робот → настройки / сведения об устройстве → скопируй длинный Device ID / SN (заканчивается на …bndpiz…).\n\nМожно также вставить весь токен plugin_account (device;jwt;region;…), если он есть.\n\n{error_detail}",
         "data": {
           "device_id": "Id из приложения (или токен plugin_account)"
-        }
-      },
-      "login": {
-        "title": "Аккаунт YuGong / Grit",
-        "description": "Парольный аккаунт RobotCleaner. Если входишь только через Honor ID — выбери «Honor AI Space».",
-        "data": {
-          "account": "Телефон / email",
-          "password": "Пароль",
-          "calling_code": "Код страны",
-          "language": "Язык",
-          "name": "Имя в Home Assistant"
-        }
-      },
-      "token": {
-        "title": "Облачный токен",
-        "description": "Вставь JWT или строку plugin_account (thing_name возьмётся из токена или списка устройств).",
-        "data": {
-          "token": "Токен",
-          "name": "Имя"
         }
       },
       "honor_after_captcha": {

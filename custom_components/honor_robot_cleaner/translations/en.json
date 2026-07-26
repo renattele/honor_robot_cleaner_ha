@@ -1,14 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "Honor Robot Cleaner",
-        "menu_options": {
-          "honor": "Honor AI Space (phone + password + SMS)",
-          "login": "YuGong password (RobotCleaner account)",
-          "token": "Advanced: paste cloud token"
-        }
-      },
       "honor": {
         "title": "Honor AI Space login",
         "description": "Same credentials as Honor ID / AI Space. After SMS we may ask for the robot id once (Grit honor_card_login needs it).\n\n{error_detail}",
@@ -37,25 +29,6 @@
         "description": "Grit needs the robot id for the first cloud login (same value Magichome already knows as the device’s cloud id).\n\nNo root needed — in Honor AI Space open the robot → Settings / Device info → copy the long Device ID / SN (ends with …bndpiz…).\n\nYou can also paste a full plugin_account token (device;jwt;region;…) if you have one.\n\n{error_detail}",
         "data": {
           "device_id": "Robot id from the app (or plugin_account token)"
-        }
-      },
-      "login": {
-        "title": "YuGong / Grit account",
-        "description": "RobotCleaner cloud password account (phone without country code). Prefer «Honor AI Space» if you only sign in via Honor ID.",
-        "data": {
-          "account": "Phone / email",
-          "password": "Password",
-          "calling_code": "Country calling code",
-          "language": "Language",
-          "name": "Name in Home Assistant"
-        }
-      },
-      "token": {
-        "title": "Cloud token",
-        "description": "Paste JWT or full plugin_account token. thing_name is taken from the token or cloud device list.",
-        "data": {
-          "token": "Token",
-          "name": "Name"
         }
       },
       "honor_after_captcha": {

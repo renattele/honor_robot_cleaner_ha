@@ -131,7 +131,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._client: GritApiClient | None = None
         self._session: dict[str, Any] = {}
         self._devices: list[dict[str, Any]] = []
-        self._auth_mode = AUTH_MODE_PASSWORD
+        self._auth_mode = AUTH_MODE_HONOR
         self._name = DEFAULT_NAME
         self._honor: HonorIdClient | None = None
         self._honor_account = ""
@@ -158,12 +158,10 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
+        """Start setup — Honor AI Space only."""
         await async_setup_component(self.hass, DOMAIN, {})
         async_register_captcha_views(self.hass)
-        return self.async_show_menu(
-            step_id="user",
-            menu_options=["honor", "login", "token"],
-        )
+        return await self.async_step_honor(user_input)
 
     # ---- Honor AI Space (password + captcha + SMS) -------------------
 
@@ -734,150 +732,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "error_detail": "",
                 },
             )
-
-    # ---- Grit password -----------------------------------------------
-
-    async def async_step_login(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            account = user_input[CONF_ACCOUNT].strip()
-            password = user_input[CONF_PASSWORD]
-            calling_code = user_input.get(CONF_CALLING_CODE, DEFAULT_CALLING_CODE)
-            language = user_input.get(CONF_LANGUAGE, DEFAULT_LANGUAGE)
-            self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
-            try:
-                client = GritApiClient(
-                    calling_code=calling_code,
-                    language=language,
-                    base_url=base_url_for_calling_code(calling_code),
-                )
-                session = await client.async_login_password(
-                    account,
-                    password,
-                    calling_code=calling_code,
-                    language=language,
-                )
-                devices = await client.async_list_devices()
-                device = _pick_robot_device(devices)
-                if not device:
-                    errors["base"] = "no_devices"
-                else:
-                    self._client = client
-                    self._session = {
-                        **session,
-                        CONF_PASSWORD: password,
-                        CONF_AUTH_MODE: AUTH_MODE_PASSWORD,
-                    }
-                    self._devices = devices
-                    self._auth_mode = AUTH_MODE_PASSWORD
-                    return await self._async_create_from_device(device)
-            except GritApiError as err:
-                _LOGGER.warning("Login failed: %s", err)
-                errors["base"] = _classify_grit_error(err)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Login failed")
-                errors["base"] = "unknown"
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_ACCOUNT): str,
-                vol.Required(CONF_PASSWORD): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.PASSWORD
-                    )
-                ),
-                vol.Required(
-                    CONF_CALLING_CODE, default=DEFAULT_CALLING_CODE
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=k, label=f"{v} [{k}]")
-                            for k, v in CALLING_CODES.items()
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): str,
-                vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
-            }
-        )
-        return self.async_show_form(
-            step_id="login", data_schema=schema, errors=errors
-        )
-
-    async def async_step_token(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            try:
-                parsed = _normalize_token_credentials(user_input)
-                client = GritApiClient(
-                    token=parsed[CONF_TOKEN],
-                    device_id=parsed.get(CONF_DEVICE_ID, ""),
-                    region=parsed[CONF_REGION],
-                    base_url=parsed[CONF_BASE_URL],
-                    sub_type=parsed[CONF_SUB_TYPE],
-                    auth_mode=AUTH_MODE_TOKEN,
-                )
-                devices = await client.async_list_devices()
-                preferred = parsed.get(CONF_DEVICE_ID) or ""
-                if preferred:
-                    match = [
-                        d
-                        for d in devices
-                        if d.get("thing_name") == preferred
-                    ]
-                    if not match:
-                        match = [
-                            {
-                                "thing_name": preferred,
-                                "sub_type": parsed[CONF_SUB_TYPE],
-                                "thing_nickname": user_input.get(CONF_NAME)
-                                or DEFAULT_NAME,
-                            }
-                        ]
-                    device = match[0]
-                else:
-                    device = _pick_robot_device(devices)
-                if not device:
-                    errors["base"] = "no_devices"
-                else:
-                    self._client = client
-                    self._session = {
-                        CONF_TOKEN: parsed[CONF_TOKEN],
-                        CONF_REGION: parsed[CONF_REGION],
-                        CONF_BASE_URL: parsed[CONF_BASE_URL],
-                        CONF_AUTH_MODE: AUTH_MODE_TOKEN,
-                    }
-                    self._devices = devices
-                    self._auth_mode = AUTH_MODE_TOKEN
-                    self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
-                    return await self._async_create_from_device(device)
-            except ValueError:
-                errors["base"] = "invalid_token_format"
-            except GritApiError as err:
-                _LOGGER.warning("Token login failed: %s", err)
-                errors["base"] = _classify_grit_error(err)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Token setup failed")
-                errors["base"] = "unknown"
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_TOKEN): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.PASSWORD, multiline=True
-                    )
-                ),
-                vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
-            }
-        )
-        return self.async_show_form(
-            step_id="token", data_schema=schema, errors=errors
-        )
 
     async def _async_create_from_device(self, device: dict[str, Any]) -> FlowResult:
         assert self._client is not None
