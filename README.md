@@ -18,12 +18,10 @@ Or add this repository in HACS as a custom integration.
 
 Same flow as Honor ID in AI Space:
 
-1. Enter Honor phone, password, and robot **Device ID** (`thing_name`)
+1. Enter Honor phone and password
 2. Open the captcha link in a browser (logged into HA), solve YiDun captcha
 3. Enter the SMS code from your phone
-4. Integration exchanges Honor OAuth `code` → Grit `honor_card_login` → JWT
-
-Device ID is the robot `thing_name` (first field of the Magichome `plugin_account` token before `;`, if you already have one).
+4. Integration exchanges Honor OAuth `code` → Grit `honor_card_login` → discovers `thing_name` from the device list → JWT
 
 Grit JWT lasts ~24h. After Honor AI Space setup, HA stores Honor SSO cookies and **refreshes the JWT automatically** (silent OAuth → `honor_card_login`) — no phone required. If the Honor session itself expires, re-run the Honor login flow once.
 

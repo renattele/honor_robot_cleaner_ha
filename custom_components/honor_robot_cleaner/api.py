@@ -236,10 +236,15 @@ class GritApiClient:
             )
         # Honor sometimes returns code=1 with a stringified error in data
         data = payload.get("data")
-        if isinstance(data, str) and (
-            "error" in data or "sub_error" in data or "invalid" in data.lower()
-        ):
-            raise GritApiError(data, code=payload.get("code"))
+        if isinstance(data, str):
+            stripped = data.strip().strip("'\"")
+            if (
+                "error" in data
+                or "sub_error" in data
+                or "invalid" in data.lower()
+                or stripped in {"thing_name", "auth_code", "sub_type", "token"}
+            ):
+                raise GritApiError(data, code=payload.get("code"))
         return payload
 
     async def async_verify_app(self) -> str:
@@ -284,7 +289,7 @@ class GritApiClient:
         auth_code = (auth_code or "").strip()
         if not auth_code:
             raise GritApiError("Empty Honor auth_code")
-        if device_id:
+        if device_id is not None:
             self.device_id = device_id.strip()
         if sub_type:
             self.sub_type = sub_type.strip()
@@ -296,11 +301,10 @@ class GritApiClient:
             self.base_url = base_url.rstrip("/") + "/"
         else:
             self.base_url = base_url_for_calling_code(self.calling_code)
-        if not self.device_id:
-            raise GritApiError("device_id (thing_name) required for Honor login")
 
         app_token = await self.async_verify_app()
-        # SDK sends a minimal header for honor_card_login (app_version + app_name only)
+        # Magichome always sends thing_name (= device id). Empty is accepted by
+        # the API for field validation; after login we resolve it via thing list.
         payload = await self.async_post(
             "oauth2",
             {
@@ -311,8 +315,8 @@ class GritApiClient:
                 "payload": {
                     "opt": "honor_card_login",
                     "auth_code": auth_code,
-                    "thing_name": self.device_id,
-                    "sub_type": self.sub_type,
+                    "thing_name": self.device_id or "",
+                    "sub_type": self.sub_type or "rob-01",
                     "calling_code": self.calling_code,
                     "language": self.language,
                     "system_id": system_id,
@@ -324,6 +328,9 @@ class GritApiClient:
             token=app_token,
         )
         data = payload.get("data") or {}
+        if isinstance(data, str):
+            # API sometimes returns code=1 with data="'thing_name'" for missing fields
+            raise GritApiError(f"honor_card_login rejected: {data}")
         if not isinstance(data, dict):
             raise GritApiError(f"honor_card_login bad data: {data!r}")
         # Response field is card_token (YuGongRespDataLoginWithAuthCode)

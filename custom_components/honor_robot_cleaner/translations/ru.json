@@ -11,13 +11,11 @@
       },
       "honor": {
         "title": "Вход Honor AI Space",
-        "description": "Те же логин и пароль, что у Honor ID. Device ID — thing_name. После входа сохраняется сессия Honor, и JWT Grit обновляется сам без телефона.",
+        "description": "Те же логин и пароль, что у Honor ID. Robot thing_name подтянется сам из облака после входа. Сессия Honor сохраняется для автообновления JWT.",
         "data": {
           "account": "Телефон",
           "password": "Пароль Honor ID",
-          "device_id": "Device ID (thing_name)",
           "calling_code": "Код страны",
-          "sub_type": "Product sub_type",
           "language": "Язык",
           "name": "Имя в Home Assistant"
         }
@@ -46,21 +44,10 @@
       },
       "token": {
         "title": "Облачный токен",
-        "description": "Вставь JWT или строку plugin_account. Режим только токена сам не обновляется — лучше вход Honor AI Space.",
+        "description": "Вставь JWT или строку plugin_account (thing_name возьмётся из токена или списка устройств).",
         "data": {
           "token": "Токен",
-          "device_id": "Device ID (thing_name)",
-          "name": "Имя",
-          "region": "Регион",
-          "base_url": "Базовый URL API",
-          "sub_type": "Product sub_type"
-        }
-      },
-      "device": {
-        "title": "Выбор робота",
-        "description": "Выбери пылесос для добавления.",
-        "data": {
-          "device_id": "Устройство"
+          "name": "Имя"
         }
       }
     },

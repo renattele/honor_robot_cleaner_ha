@@ -130,7 +130,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._honor_password = ""
         self._honor_calling_code = DEFAULT_CALLING_CODE
         self._honor_language = DEFAULT_LANGUAGE
-        self._honor_device_id = ""
         self._honor_sub_type = DEFAULT_SUB_TYPE
         self._captcha_trans_no = ""
         self._captcha_validate = ""
@@ -165,7 +164,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_CALLING_CODE, DEFAULT_CALLING_CODE
             )
             self._honor_language = user_input.get(CONF_LANGUAGE, DEFAULT_LANGUAGE)
-            self._honor_device_id = (user_input.get(CONF_DEVICE_ID) or "").strip()
             self._honor_sub_type = (
                 user_input.get(CONF_SUB_TYPE) or DEFAULT_SUB_TYPE
             ).strip()
@@ -216,7 +214,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         type=selector.TextSelectorType.PASSWORD
                     )
                 ),
-                vol.Required(CONF_DEVICE_ID): str,
                 vol.Required(
                     CONF_CALLING_CODE, default=DEFAULT_CALLING_CODE
                 ): selector.SelectSelector(
@@ -228,7 +225,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
-                vol.Optional(CONF_SUB_TYPE, default=DEFAULT_SUB_TYPE): str,
                 vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): str,
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
             }
@@ -324,9 +320,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             )
                         ),
                         vol.Required(
-                            CONF_DEVICE_ID, default=self._honor_device_id
-                        ): str,
-                        vol.Required(
                             CONF_CALLING_CODE, default=self._honor_calling_code
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
@@ -339,9 +332,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 mode=selector.SelectSelectorMode.DROPDOWN,
                             )
                         ),
-                        vol.Optional(
-                            CONF_SUB_TYPE, default=self._honor_sub_type
-                        ): str,
                         vol.Optional(
                             CONF_LANGUAGE, default=self._honor_language
                         ): str,
@@ -409,7 +399,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._honor.extract_auth_code, login_resp
             )
             client = GritApiClient(
-                device_id=self._honor_device_id,
                 sub_type=self._honor_sub_type,
                 calling_code=self._honor_calling_code,
                 language=self._honor_language,
@@ -417,7 +406,6 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             session = await client.async_login_honor_auth_code(
                 result.auth_code,
-                device_id=self._honor_device_id,
                 sub_type=self._honor_sub_type,
                 calling_code=self._honor_calling_code,
                 language=self._honor_language,
@@ -428,22 +416,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             client.honor_session = dict(self._honor_session)
             devices = await client.async_list_devices()
-            if self._honor_device_id:
-                match = [
-                    d
-                    for d in devices
-                    if d.get("thing_name") == self._honor_device_id
-                ]
-                if not match:
-                    match = [
-                        {
-                            "thing_name": self._honor_device_id,
-                            "sub_type": self._honor_sub_type,
-                            "thing_nickname": self._name,
-                        }
-                    ]
-                devices = match
-            if not devices:
+            device = _pick_robot_device(devices)
+            if not device:
                 return self.async_abort(reason="no_devices")
             self._client = client
             self._session = {
@@ -455,9 +429,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._devices = devices
             self._auth_mode = AUTH_MODE_HONOR
             async_pop_captcha_session(self.hass, self.flow_id)
-            if len(devices) == 1:
-                return await self._async_create_from_device(devices[0])
-            return await self.async_step_device()
+            return await self._async_create_from_device(device)
         except (HonorIdError, GritApiError) as err:
             _LOGGER.warning("Honor finish failed: %s", err)
             if isinstance(err, GritApiError):
@@ -502,7 +474,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     language=language,
                 )
                 devices = await client.async_list_devices()
-                if not devices:
+                device = _pick_robot_device(devices)
+                if not device:
                     errors["base"] = "no_devices"
                 else:
                     self._client = client
@@ -513,9 +486,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }
                     self._devices = devices
                     self._auth_mode = AUTH_MODE_PASSWORD
-                    if len(devices) == 1:
-                        return await self._async_create_from_device(devices[0])
-                    return await self.async_step_device()
+                    return await self._async_create_from_device(device)
             except GritApiError as err:
                 _LOGGER.warning("Login failed: %s", err)
                 errors["base"] = _classify_grit_error(err)
@@ -566,23 +537,26 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     auth_mode=AUTH_MODE_TOKEN,
                 )
                 devices = await client.async_list_devices()
-                if parsed.get(CONF_DEVICE_ID):
+                preferred = parsed.get(CONF_DEVICE_ID) or ""
+                if preferred:
                     match = [
                         d
                         for d in devices
-                        if d.get("thing_name") == parsed[CONF_DEVICE_ID]
+                        if d.get("thing_name") == preferred
                     ]
-                    if not match and devices:
+                    if not match:
                         match = [
                             {
-                                "thing_name": parsed[CONF_DEVICE_ID],
+                                "thing_name": preferred,
                                 "sub_type": parsed[CONF_SUB_TYPE],
                                 "thing_nickname": user_input.get(CONF_NAME)
                                 or DEFAULT_NAME,
                             }
                         ]
-                    devices = match or devices
-                if not devices:
+                    device = match[0]
+                else:
+                    device = _pick_robot_device(devices)
+                if not device:
                     errors["base"] = "no_devices"
                 else:
                     self._client = client
@@ -595,9 +569,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._devices = devices
                     self._auth_mode = AUTH_MODE_TOKEN
                     self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
-                    if len(devices) == 1:
-                        return await self._async_create_from_device(devices[0])
-                    return await self.async_step_device()
+                    return await self._async_create_from_device(device)
             except ValueError:
                 errors["base"] = "invalid_token_format"
             except GritApiError as err:
@@ -614,47 +586,11 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         type=selector.TextSelectorType.PASSWORD, multiline=True
                     )
                 ),
-                vol.Optional(CONF_DEVICE_ID): str,
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
-                vol.Optional(CONF_REGION, default=DEFAULT_REGION): str,
-                vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-                vol.Optional(CONF_SUB_TYPE, default=DEFAULT_SUB_TYPE): str,
             }
         )
         return self.async_show_form(
             step_id="token", data_schema=schema, errors=errors
-        )
-
-    async def async_step_device(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        errors: dict[str, str] = {}
-        options = {
-            d["thing_name"]: _device_label(d)
-            for d in self._devices
-            if d.get("thing_name")
-        }
-        if user_input is not None:
-            thing = user_input[CONF_DEVICE_ID]
-            device = next(d for d in self._devices if d.get("thing_name") == thing)
-            return await self._async_create_from_device(device)
-
-        return self.async_show_form(
-            step_id="device",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_DEVICE_ID): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(value=k, label=v)
-                                for k, v in options.items()
-                            ],
-                            mode=selector.SelectSelectorMode.LIST,
-                        )
-                    )
-                }
-            ),
-            errors=errors,
         )
 
     async def _async_create_from_device(self, device: dict[str, Any]) -> FlowResult:
@@ -916,11 +852,22 @@ def _looks_like_sms_gate(resp: dict[str, Any]) -> bool:
     return bool(resp.get("isDoubleVerification"))
 
 
-def _device_label(device: dict[str, Any]) -> str:
-    nick = device.get("thing_nickname") or "Robot"
-    thing = device.get("thing_name", "")
-    sub = device.get("sub_type") or ""
-    return f"{nick} ({sub}) — {thing[-8:]}"
+def _pick_robot_device(
+    devices: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Pick the vacuum from cloud thing list (no UI wizard)."""
+    if not devices:
+        return None
+    robots: list[dict[str, Any]] = []
+    for d in devices:
+        if not d.get("thing_name"):
+            continue
+        sub = str(d.get("sub_type") or "").lower()
+        thing = str(d.get("thing_name") or "").lower()
+        if sub.startswith("rob") or "dpiz" in thing or "sweep" in sub:
+            robots.append(d)
+    pool = robots or [d for d in devices if d.get("thing_name")]
+    return pool[0] if pool else None
 
 
 def _normalize_token_credentials(user_input: dict[str, Any]) -> dict[str, str]:

@@ -11,13 +11,11 @@
       },
       "honor": {
         "title": "Honor AI Space login",
-        "description": "Same credentials as Honor ID / AI Space. Device ID is thing_name from plugin_account. After login, Honor session cookies are stored so the Grit JWT can refresh automatically without a phone.",
+        "description": "Same credentials as Honor ID / AI Space. Robot thing_name is discovered from the cloud after login. Honor session cookies are stored for automatic JWT refresh.",
         "data": {
           "account": "Phone",
           "password": "Honor ID password",
-          "device_id": "Device ID (thing_name)",
           "calling_code": "Country calling code",
-          "sub_type": "Product sub_type",
           "language": "Language",
           "name": "Name in Home Assistant"
         }
@@ -46,21 +44,10 @@
       },
       "token": {
         "title": "Cloud token",
-        "description": "Paste JWT or full plugin_account.xml token string. Token-only mode does not auto-refresh — prefer Honor AI Space login.",
+        "description": "Paste JWT or full plugin_account token. thing_name is taken from the token or cloud device list.",
         "data": {
           "token": "Token",
-          "device_id": "Device ID (thing_name)",
-          "name": "Name",
-          "region": "Region",
-          "base_url": "API base URL",
-          "sub_type": "Product sub_type"
-        }
-      },
-      "device": {
-        "title": "Select robot",
-        "description": "Choose which vacuum to add.",
-        "data": {
-          "device_id": "Device"
+          "name": "Name"
         }
       }
     },
