@@ -23,6 +23,11 @@ from .const import (
     CMD_CONTINUE,
     CMD_DOCK,
     CMD_LOCATE,
+    CMD_MOVE_BACK,
+    CMD_MOVE_FRONT,
+    CMD_MOVE_LEFT,
+    CMD_MOVE_RIGHT,
+    CMD_MOVE_STOP,
     CMD_PAUSE,
     CMD_SELECT_CLEAN,
     CMD_SPOT,
@@ -627,6 +632,43 @@ class GritApiClient:
 
     async def async_locate(self) -> None:
         await self.async_send_working_status(CMD_LOCATE)
+
+    async def async_move(self, direction: str) -> None:
+        await self.async_send_working_status(direction)
+
+    async def async_move_front(self) -> None:
+        await self.async_move(CMD_MOVE_FRONT)
+
+    async def async_move_back(self) -> None:
+        await self.async_move(CMD_MOVE_BACK)
+
+    async def async_move_left(self) -> None:
+        await self.async_move(CMD_MOVE_LEFT)
+
+    async def async_move_right(self) -> None:
+        await self.async_move(CMD_MOVE_RIGHT)
+
+    async def async_move_stop(self) -> None:
+        await self.async_move(CMD_MOVE_STOP)
+
+    async def async_request_room_info(self) -> None:
+        """Ask device for room polygons via zone_info_cmd (response on WSS)."""
+        await self.async_request(
+            {
+                "opt": "send_to_device",
+                "sub_type": self.sub_type,
+                "thing_name": self.device_id,
+                "topic_payload": {
+                    "state": {
+                        "zone_info_cmd": {
+                            "cmd": "req_zone_info",
+                            "data": [{"zone_type": "useto_edit"}],
+                            "extend": {},
+                        }
+                    }
+                },
+            }
+        )
 
     async def async_clear_map(self) -> None:
         await self.async_send_working_status(CMD_CLEAR_MAP)

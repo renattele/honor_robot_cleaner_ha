@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "honor_robot_cleaner"
-INTEGRATION_VERSION = "1.4.1"
+INTEGRATION_VERSION = "1.4.2"
 
 CONF_TOKEN = "token"
 CONF_DEVICE_ID = "device_id"
@@ -52,6 +52,11 @@ CMD_SPOT = "SpotClean"
 CMD_LOCATE = "LocationAlarm"
 CMD_CLEAR_MAP = "ClearMap"
 CMD_SELECT_CLEAN = "SelectClean"
+CMD_MOVE_FRONT = "MoveFront"
+CMD_MOVE_BACK = "MoveBack"
+CMD_MOVE_LEFT = "MoveLeft"
+CMD_MOVE_RIGHT = "MoveRight"
+CMD_MOVE_STOP = "MoveStop"
 
 FAN_QUIET = "Quiet"
 FAN_NORMAL = "Normal"

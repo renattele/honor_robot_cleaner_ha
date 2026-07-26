@@ -170,6 +170,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _last_map_render = {"ts": 0.0}
 
+    def _rooms_payload(rooms) -> list[dict]:
+        return [{"room_id": r.room_id, "name": r.name} for r in rooms]
+
+    async def _publish_live(parsed, map_data: str | None = None) -> None:
+        image = await hass.async_add_executor_job(render_map_png, parsed)
+        live = {
+            "raw": map_data or store.get("live_map", {}).get("raw"),
+            "parsed": parsed,
+            "image": image,
+            "map_id": parsed.map_id,
+            "rooms": _rooms_payload(parsed.rooms),
+        }
+        store["live_map"] = live
+        store["map"] = {"map_id": parsed.map_id, "rooms": live["rooms"]}
+        hass.bus.async_fire(f"{DOMAIN}_map_update", {"entry_id": entry.entry_id})
+
     async def _on_map(map_data: str) -> None:
         import time
 
@@ -181,30 +197,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         parsed = await hass.async_add_executor_job(parse_map_data, map_data)
         if parsed is None:
             return
-        image = await hass.async_add_executor_job(render_map_png, parsed)
-        live = {
-            "raw": map_data,
-            "parsed": parsed,
-            "image": image,
-            "map_id": parsed.map_id,
-            "rooms": [
-                {"room_id": r.room_id, "name": r.name} for r in parsed.rooms
-            ],
-        }
-        store["live_map"] = live
-        store["map"] = {
-            "map_id": parsed.map_id,
-            "rooms": live["rooms"],
-        }
+        # Prefer richer room list from zone_info if we already have it
+        zone_rooms = store.get("zone_rooms")
+        if zone_rooms:
+            parsed.rooms = zone_rooms
+        await _publish_live(parsed, map_data)
         _last_map_render["ts"] = now
-        hass.bus.async_fire(
-            f"{DOMAIN}_map_update", {"entry_id": entry.entry_id}
+
+    async def _on_zone(payload: dict) -> None:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        if not isinstance(data, dict):
+            return
+        if data.get("result_code") not in (0, "0", None):
+            _LOGGER.debug("zone_info_rsp code=%s", data.get("result_code"))
+            return
+        zones = data.get("room_zone_info")
+        if not isinstance(zones, list):
+            return
+        # Reuse map parser path by wrapping as YuGong live object
+        origin_map = (store.get("live_map") or {}).get("parsed")
+        wrapper = {
+            "ProtocolVersion": "1.0",
+            "map_id": str(data.get("map_id") or (origin_map.map_id if origin_map else "")),
+            "MapWidth": origin_map.width if origin_map else 0,
+            "MapHigh": origin_map.height if origin_map else 0,
+            "MapOrigin": list(origin_map.dock) if origin_map and origin_map.dock else [0, 0],
+            "MapResolution": origin_map.resolution if origin_map else 0.05,
+            "room_zone_info": zones,
+            "room_info": data.get("room_info") or {},
+        }
+        from functools import partial
+
+        parsed_zones = await hass.async_add_executor_job(
+            partial(parse_map_data, wrapper, map_id=wrapper["map_id"])
         )
+        if parsed_zones is None:
+            return
+        store["zone_rooms"] = parsed_zones.rooms
+        store["map"] = {
+            "map_id": wrapper["map_id"],
+            "rooms": _rooms_payload(parsed_zones.rooms),
+        }
+        # Re-render current live frame with updated rooms
+        live = store.get("live_map") or {}
+        if live.get("parsed") is not None:
+            current = live["parsed"]
+            current.rooms = parsed_zones.rooms
+            await _publish_live(current, live.get("raw"))
+        else:
+            hass.bus.async_fire(f"{DOMAIN}_map_update", {"entry_id": entry.entry_id})
 
     wss = GritWssClient(
         client,
         on_status=_on_status,
         on_map=_on_map,
+        on_zone=_on_zone,
         wss_url=client.resolve_wss_url(),
     )
     store["wss"] = wss

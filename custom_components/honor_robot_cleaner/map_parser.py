@@ -23,6 +23,8 @@ class MapRoom:
     room_id: int
     name: str = ""
     vertices: list[tuple[float, float]] = field(default_factory=list)
+    clean_order: int = -1
+    draw: bool = True
 
 
 @dataclass
@@ -34,6 +36,7 @@ class ParsedMap:
     x_min: float = 0.0
     y_min: float = 0.0
     dock: tuple[float, float] | None = None
+    robot: tuple[float, float] | None = None
     rooms: list[MapRoom] = field(default_factory=list)
     cells: list[int] | None = None
     path: list[tuple[float, float]] = field(default_factory=list)
@@ -157,11 +160,16 @@ def _parse_yugong_live(obj: dict[str, Any], *, map_id: str) -> ParsedMap:
                 verts.append(
                     _mm_to_px(_as_float(x), _as_float(y), origin=origin, resolution=resolution)
                 )
+        clean_order = _as_int(item.get("clean_order"), -1)
+        # Single unsorted zone (clean_order -1) is often a blob, not a named room
+        draw = not (rid == 0 and clean_order < 0 and len(obj.get("room_zone_info") or []) == 1)
         rooms.append(
             MapRoom(
                 room_id=rid,
                 name=names.get(rid, f"Room {rid}"),
                 vertices=verts,
+                clean_order=clean_order,
+                draw=draw,
             )
         )
 
@@ -180,6 +188,7 @@ def _parse_yugong_live(obj: dict[str, Any], *, map_id: str) -> ParsedMap:
 
     # Dock: MapOrigin is charger cell in this firmware family
     dock = (origin[0], origin[1])
+    robot = path[-1] if path else None
 
     return ParsedMap(
         map_id=str(map_id or obj.get("map_id") or ""),
@@ -187,6 +196,7 @@ def _parse_yugong_live(obj: dict[str, Any], *, map_id: str) -> ParsedMap:
         height=height,
         resolution=resolution,
         dock=dock,
+        robot=robot,
         rooms=rooms,
         cells=cells,
         path=path,
@@ -372,18 +382,26 @@ def render_map_png(parsed: ParsedMap, *, scale: int = 3) -> bytes:
     draw = ImageDraw.Draw(img)
 
     for room in parsed.rooms:
-        if len(room.vertices) >= 3:
+        if room.draw and len(room.vertices) >= 3:
             pts = [_to_px(parsed, vx, vy, scale) for vx, vy in room.vertices]
             draw.polygon(pts, outline=(255, 196, 72))
+
+    if len(parsed.path) >= 2:
+        pts = [_to_px(parsed, px, py, scale) for px, py in parsed.path]
+        draw.line(pts, fill=(80, 180, 255), width=max(1, scale))
 
     if parsed.dock is not None:
         dx, dy = _to_px(parsed, parsed.dock[0], parsed.dock[1], scale)
         r = max(3, 3 * scale)
         draw.ellipse((dx - r, dy - r, dx + r, dy + r), fill=(255, 200, 40))
 
-    if len(parsed.path) >= 2:
-        pts = [_to_px(parsed, px, py, scale) for px, py in parsed.path]
-        draw.line(pts, fill=(80, 180, 255), width=max(1, scale))
+    if parsed.robot is not None:
+        rx, ry = _to_px(parsed, parsed.robot[0], parsed.robot[1], scale)
+        r = max(3, 2 * scale)
+        draw.ellipse((rx - r, ry - r, rx + r, ry + r), fill=(80, 220, 120))
+        draw.ellipse(
+            (rx - r // 2, ry - r // 2, rx + r // 2, ry + r // 2), fill=(20, 40, 30)
+        )
 
     buf = BytesIO()
     img.save(buf, format="PNG")

@@ -1,4 +1,4 @@
-"""Button platform — spot, continue, locate, clear map."""
+"""Button platform — actions + remote stick."""
 
 from __future__ import annotations
 
@@ -68,6 +68,72 @@ async def async_setup_entry(
                 icon="mdi:map-marker-remove",
                 action=client.async_clear_map,
             ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="refresh_rooms",
+                name="Refresh rooms",
+                icon="mdi:floor-plan",
+                action=client.async_request_room_info,
+                refresh=False,
+            ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="move_front",
+                name="Move forward",
+                icon="mdi:arrow-up-bold",
+                action=client.async_move_front,
+                refresh=False,
+            ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="move_back",
+                name="Move back",
+                icon="mdi:arrow-down-bold",
+                action=client.async_move_back,
+                refresh=False,
+            ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="move_left",
+                name="Move left",
+                icon="mdi:arrow-left-bold",
+                action=client.async_move_left,
+                refresh=False,
+            ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="move_right",
+                name="Move right",
+                icon="mdi:arrow-right-bold",
+                action=client.async_move_right,
+                refresh=False,
+            ),
+            HonorActionButton(
+                coordinator,
+                client,
+                device_id,
+                info,
+                key="move_stop",
+                name="Move stop",
+                icon="mdi:stop",
+                action=client.async_move_stop,
+                refresh=False,
+            ),
         ]
     )
 
@@ -86,10 +152,12 @@ class HonorActionButton(CoordinatorEntity[HonorRobotCoordinator], ButtonEntity):
         name: str,
         icon: str,
         action: Callable[[], Awaitable[None]],
+        refresh: bool = True,
     ) -> None:
         super().__init__(coordinator)
         self._client = client
         self._action = action
+        self._refresh = refresh
         self._attr_name = name
         self._attr_icon = icon
         self._attr_unique_id = f"{device_id}_btn_{key}"
@@ -97,4 +165,5 @@ class HonorActionButton(CoordinatorEntity[HonorRobotCoordinator], ButtonEntity):
 
     async def async_press(self) -> None:
         await self._action()
-        await self.coordinator.async_request_refresh()
+        if self._refresh:
+            await self.coordinator.async_request_refresh()

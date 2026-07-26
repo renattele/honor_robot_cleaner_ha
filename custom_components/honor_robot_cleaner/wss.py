@@ -16,12 +16,15 @@ _LOGGER = logging.getLogger(__name__)
 
 NOTIFY_MAP = "map_data"
 NOTIFY_STATUS = "thing_status_update"
+NOTIFY_ZONE = "zone_cmd_rsp"
+NOTIFY_ZONE_SAVE = "zone_info_save"
 HEARTBEAT_SECONDS = 2.0
 RECONNECT_MIN = 2.0
 RECONNECT_MAX = 60.0
 
 StatusHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 MapHandler = Callable[[str], Awaitable[None] | None]
+ZoneHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
 def wss_url_from_base(base_url: str) -> str:
@@ -42,11 +45,13 @@ class GritWssClient:
         *,
         on_status: StatusHandler | None = None,
         on_map: MapHandler | None = None,
+        on_zone: ZoneHandler | None = None,
         wss_url: str | None = None,
     ) -> None:
         self._client = client
         self._on_status = on_status
         self._on_map = on_map
+        self._on_zone = on_zone
         self._wss_url = (wss_url or "").strip() or None
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -123,6 +128,11 @@ class GritWssClient:
                     "thing_name": self._client.device_id,
                 }
                 await ws.send_str(json.dumps(sync))
+                # Ask for room polygons once per session
+                try:
+                    await self._client.async_request_room_info()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("req_zone_info failed", exc_info=True)
                 while not self._stop.is_set():
                     try:
                         msg = await asyncio.wait_for(
@@ -180,4 +190,10 @@ class GritWssClient:
                 result = self._on_status(status)
                 if asyncio.iscoroutine(result):
                     await result
+            return
+
+        if notify in (NOTIFY_ZONE, NOTIFY_ZONE_SAVE) and self._on_zone:
+            result = self._on_zone(obj)
+            if asyncio.iscoroutine(result):
+                await result
             return
