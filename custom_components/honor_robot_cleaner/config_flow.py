@@ -85,8 +85,12 @@ def _classify_grit_error(err: GritApiError) -> str:
             "Honor session",
             "No Honor session",
             "Token expired",
+            "Put_Table",
+            "thing_name",
         )
     ):
+        if "Put_Table" in msg or "thing_name" in msg.lower():
+            return "invalid_device"
         return "invalid_auth"
     if "HTTP 401" in msg or "HTTP 403" in msg:
         return "invalid_auth"
@@ -141,6 +145,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._verify_account_type: str = "2"
         self._verify_mobile_phone = ""
         self._sms_error_detail = ""
+        self._honor_auth_code = ""
+        self._device_id = ""
         self._captcha_url = ""
         self._honor_session: dict = {}
 
@@ -176,6 +182,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._honor_sub_type = (
                 user_input.get(CONF_SUB_TYPE) or DEFAULT_SUB_TYPE
             ).strip()
+            self._device_id = (user_input.get(CONF_DEVICE_ID) or "").strip()
             self._name = user_input.get(CONF_NAME) or DEFAULT_NAME
             try:
                 await async_setup_component(self.hass, DOMAIN, {})
@@ -214,6 +221,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
                 error_detail = _error_detail(err)
 
+        suggested_device = self._device_id or _suggest_device_id(self.hass)
         schema = vol.Schema(
             {
                 vol.Required(CONF_ACCOUNT): str,
@@ -222,6 +230,7 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         type=selector.TextSelectorType.PASSWORD
                     )
                 ),
+                vol.Optional(CONF_DEVICE_ID, default=suggested_device): str,
                 vol.Required(
                     CONF_CALLING_CODE, default=DEFAULT_CALLING_CODE
                 ): selector.SelectSelector(
@@ -539,44 +548,15 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             result = await asyncio.to_thread(
                 self._honor.extract_auth_code, login_resp
             )
-            client = GritApiClient(
-                sub_type=self._honor_sub_type,
-                calling_code=self._honor_calling_code,
-                language=self._honor_language,
-                base_url=base_url_for_calling_code(self._honor_calling_code),
-            )
-            session = await client.async_login_honor_auth_code(
-                result.auth_code,
-                sub_type=self._honor_sub_type,
-                calling_code=self._honor_calling_code,
-                language=self._honor_language,
-            )
-            # Persist Honor SSO cookies for autonomous Grit JWT refresh
-            self._honor_session = await asyncio.to_thread(
-                self._honor.export_session
-            )
-            client.honor_session = dict(self._honor_session)
-            devices = await client.async_list_devices()
-            device = _pick_robot_device(devices)
-            if not device:
-                return self.async_abort(reason="no_devices")
-            self._client = client
-            self._session = {
-                **session,
-                CONF_ACCOUNT: self._honor_account,
-                CONF_PASSWORD: self._honor_password,
-                CONF_AUTH_MODE: AUTH_MODE_HONOR,
-            }
-            self._devices = devices
-            self._auth_mode = AUTH_MODE_HONOR
-            async_pop_captcha_session(self.hass, self.flow_id)
-            return await self._async_create_from_device(device)
-        except (HonorIdError, GritApiError) as err:
-            _LOGGER.warning("Honor finish failed: %s", err)
-            if isinstance(err, GritApiError):
-                err_key = _classify_grit_error(err)
-            else:
-                err_key = _classify_honor_error(err)
+            self._honor_auth_code = result.auth_code
+            if not self._device_id:
+                self._device_id = _suggest_device_id(self.hass)
+            if not self._device_id:
+                return await self.async_step_honor_device()
+            return await self._async_honor_exchange()
+        except HonorIdError as err:
+            _LOGGER.warning("Honor finish (auth_code) failed: %s", err)
+            self._sms_error_detail = _error_detail(err)
             return self.async_show_form(
                 step_id="honor_sms",
                 data_schema=vol.Schema(
@@ -585,10 +565,12 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         vol.Optional(CONF_RESEND_SMS, default=False): bool,
                     }
                 ),
-                errors={"base": err_key},
+                errors={"base": _classify_honor_error(err)},
                 description_placeholders={
-                    "phone_hint": self._verify_mobile_phone or self._honor_account or "…",
-                    "error_detail": _error_detail(err),
+                    "phone_hint": self._verify_mobile_phone
+                    or self._honor_account
+                    or "…",
+                    "error_detail": self._sms_error_detail,
                 },
             )
         except Exception:  # noqa: BLE001
@@ -603,7 +585,144 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 errors={"base": "unknown"},
                 description_placeholders={
-                    "phone_hint": self._verify_mobile_phone or self._honor_account or "…",
+                    "phone_hint": self._verify_mobile_phone
+                    or self._honor_account
+                    or "…",
+                    "error_detail": "",
+                },
+            )
+
+    async def async_step_honor_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Grit honor_card_login requires thing_name (robot device id)."""
+        errors: dict[str, str] = {}
+        error_detail = ""
+        if user_input is not None:
+            self._device_id = (user_input.get(CONF_DEVICE_ID) or "").strip()
+            if not self._device_id:
+                errors["base"] = "invalid_device"
+            elif not self._honor_auth_code:
+                errors["base"] = "invalid_auth"
+                error_detail = "Honor auth_code lost — start Honor login again"
+            else:
+                return await self._async_honor_exchange()
+
+        suggested = self._device_id or _suggest_device_id(self.hass)
+        return self.async_show_form(
+            step_id="honor_device",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_DEVICE_ID, default=suggested): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={"error_detail": error_detail},
+        )
+
+    async def _async_honor_exchange(self) -> FlowResult:
+        """Exchange stored Honor auth_code + thing_name → Grit JWT."""
+        assert self._honor is not None
+        try:
+            if not self._honor_auth_code:
+                raise GritApiError("Missing Honor auth_code — restart setup")
+            if not self._device_id:
+                raise GritApiError("Missing thing_name (device id)")
+            client = GritApiClient(
+                device_id=self._device_id,
+                sub_type=self._honor_sub_type,
+                calling_code=self._honor_calling_code,
+                language=self._honor_language,
+                base_url=base_url_for_calling_code(self._honor_calling_code),
+            )
+            session = await client.async_login_honor_auth_code(
+                self._honor_auth_code,
+                device_id=self._device_id,
+                sub_type=self._honor_sub_type,
+                calling_code=self._honor_calling_code,
+                language=self._honor_language,
+            )
+            # auth_code is one-time
+            self._honor_auth_code = ""
+            self._honor_session = await asyncio.to_thread(
+                self._honor.export_session
+            )
+            client.honor_session = dict(self._honor_session)
+            devices = await client.async_list_devices()
+            device = _pick_robot_device(devices, preferred=self._device_id)
+            if not device:
+                return self.async_abort(reason="no_devices")
+            self._client = client
+            self._session = {
+                **session,
+                CONF_ACCOUNT: self._honor_account,
+                CONF_PASSWORD: self._honor_password,
+                CONF_AUTH_MODE: AUTH_MODE_HONOR,
+                CONF_DEVICE_ID: self._device_id,
+            }
+            self._devices = devices
+            self._auth_mode = AUTH_MODE_HONOR
+            async_pop_captcha_session(self.hass, self.flow_id)
+            return await self._async_create_from_device(device)
+        except (HonorIdError, GritApiError) as err:
+            _LOGGER.warning("Honor Grit exchange failed: %s", err)
+            msg = str(err)
+            # Empty/wrong thing_name → Put_Table_Error; ask again (need new SMS)
+            if "Put_Table" in msg or "thing_name" in msg.lower():
+                self._sms_error_detail = _error_detail(err)
+                return self.async_show_form(
+                    step_id="honor_device",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_DEVICE_ID, default=self._device_id or ""
+                            ): str,
+                        }
+                    ),
+                    errors={"base": "invalid_device"},
+                    description_placeholders={
+                        "error_detail": (
+                            f"{_error_detail(err)}. "
+                            "If auth_code was already used, restart Honor login."
+                        ),
+                    },
+                )
+            err_key = (
+                _classify_grit_error(err)
+                if isinstance(err, GritApiError)
+                else _classify_honor_error(err)
+            )
+            return self.async_show_form(
+                step_id="honor_sms",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_SMS_CODE): str,
+                        vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                    }
+                ),
+                errors={"base": err_key},
+                description_placeholders={
+                    "phone_hint": self._verify_mobile_phone
+                    or self._honor_account
+                    or "…",
+                    "error_detail": _error_detail(err),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Honor Grit exchange failed")
+            return self.async_show_form(
+                step_id="honor_sms",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_SMS_CODE): str,
+                        vol.Optional(CONF_RESEND_SMS, default=False): bool,
+                    }
+                ),
+                errors={"base": "unknown"},
+                description_placeholders={
+                    "phone_hint": self._verify_mobile_phone
+                    or self._honor_account
+                    or "…",
                     "error_detail": "",
                 },
             )
@@ -1017,12 +1136,31 @@ def _looks_like_sms_gate(resp: dict[str, Any]) -> bool:
     return bool(resp.get("isDoubleVerification"))
 
 
+def _suggest_device_id(hass) -> str:
+    """Prefill thing_name from an existing Honor Robot entry if any."""
+    try:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            did = (entry.data.get(CONF_DEVICE_ID) or "").strip()
+            if did:
+                return did
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _pick_robot_device(
     devices: list[dict[str, Any]],
+    *,
+    preferred: str | None = None,
 ) -> dict[str, Any] | None:
     """Pick the vacuum from cloud thing list (no UI wizard)."""
     if not devices:
         return None
+    pref = (preferred or "").strip()
+    if pref:
+        for d in devices:
+            if d.get("thing_name") == pref:
+                return d
     robots: list[dict[str, Any]] = []
     for d in devices:
         if not d.get("thing_name"):

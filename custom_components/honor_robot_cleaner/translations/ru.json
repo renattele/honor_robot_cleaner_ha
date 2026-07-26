@@ -11,10 +11,11 @@
       },
       "honor": {
         "title": "Вход Honor AI Space",
-        "description": "Те же логин и пароль, что у Honor ID. Robot thing_name подтянется сам из облака после входа. Сессия Honor сохраняется для автообновления JWT.\n\n{error_detail}",
+        "description": "Те же логин и пароль, что у Honor ID. Для Grit нужен thing_name робота (иначе Put_Table_Error) — первый кусок plugin_account до ';', обычно …bndpiz…. Сессия Honor сохраняется для автообновления JWT.\n\n{error_detail}",
         "data": {
           "account": "Телефон",
           "password": "Пароль Honor ID",
+          "device_id": "thing_name робота (device id)",
           "calling_code": "Код страны",
           "language": "Язык",
           "name": "Имя в Home Assistant"
@@ -30,6 +31,13 @@
         "data": {
           "sms_code": "Код из SMS",
           "resend_sms": "Отправить SMS ещё раз"
+        }
+      },
+      "honor_device": {
+        "title": "ID робота",
+        "description": "Grit требует thing_name для honor_card_login (пустой → Put_Table_Error). Вставь id робота (первый сегмент plugin_account до ';').\n\n{error_detail}",
+        "data": {
+          "device_id": "thing_name робота"
         }
       },
       "login": {
@@ -61,6 +69,7 @@
       "invalid_auth": "Облако отклонило вход (логин/пароль/токен/сессия).",
       "invalid_sms": "Неверный или просроченный код из SMS",
       "sms_send_failed": "Не удалось отправить SMS — смотри детали / лог Home Assistant",
+      "invalid_device": "Неверный или пустой thing_name робота",
       "captcha_required": "Сначала пройди капчу по ссылке в браузере, затем продолжай",
       "invalid_token_format": "Неверный формат токена / plugin_account",
       "no_devices": "На аккаунте нет роботов",

@@ -11,10 +11,11 @@
       },
       "honor": {
         "title": "Honor AI Space login",
-        "description": "Same credentials as Honor ID / AI Space. Robot thing_name is discovered from the cloud after login. Honor session cookies are stored for automatic JWT refresh.\n\n{error_detail}",
+        "description": "Same credentials as Honor ID / AI Space. thing_name (robot device id) is required for Grit honor_card_login — first field of plugin_account token, ends with …bndpiz…. Honor session cookies are stored for automatic JWT refresh.\n\n{error_detail}",
         "data": {
           "account": "Phone",
           "password": "Honor ID password",
+          "device_id": "Robot thing_name (device id)",
           "calling_code": "Country calling code",
           "language": "Language",
           "name": "Name in Home Assistant"
@@ -30,6 +31,13 @@
         "data": {
           "sms_code": "SMS code",
           "resend_sms": "Resend SMS"
+        }
+      },
+      "honor_device": {
+        "title": "Robot device id",
+        "description": "Grit needs thing_name for honor_card_login (empty → Put_Table_Error). Paste the robot id (e.g. from plugin_account.xml token, first segment before ';').\n\n{error_detail}",
+        "data": {
+          "device_id": "Robot thing_name"
         }
       },
       "login": {
@@ -61,6 +69,7 @@
       "invalid_auth": "Cloud rejected login (credentials/token/session).",
       "invalid_sms": "Invalid or expired SMS code",
       "sms_send_failed": "Could not send SMS — see details / Home Assistant log",
+      "invalid_device": "Invalid or missing robot thing_name (device id)",
       "captcha_required": "Solve the captcha in the browser link first, then continue",
       "invalid_token_format": "Invalid token / plugin_account format",
       "no_devices": "No robots found on this account",

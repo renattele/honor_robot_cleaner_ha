@@ -303,8 +303,12 @@ class GritApiClient:
             self.base_url = base_url_for_calling_code(self.calling_code)
 
         app_token = await self.async_verify_app()
-        # Magichome always sends thing_name (= device id). Empty is accepted by
-        # the API for field validation; after login we resolve it via thing list.
+        if not (self.device_id or "").strip():
+            raise GritApiError(
+                "honor_card_login requires thing_name (robot device id); "
+                "empty thing_name causes Put_Table_Error"
+            )
+        # Magichome always sends thing_name (= device id) + android_* system_id.
         payload = await self.async_post(
             "oauth2",
             {
@@ -315,7 +319,7 @@ class GritApiClient:
                 "payload": {
                     "opt": "honor_card_login",
                     "auth_code": auth_code,
-                    "thing_name": self.device_id or "",
+                    "thing_name": self.device_id,
                     "sub_type": self.sub_type or "rob-01",
                     "calling_code": self.calling_code,
                     "language": self.language,
