@@ -292,48 +292,35 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 captcha_validate=self._captcha_validate or None,
                 captcha_trans_no=self._captcha_trans_no or None,
             )
+            if resp.get("pageToken"):
+                self._honor.page_token = str(resp["pageToken"])
+
             ok = str(resp.get("isSuccess")) in ("1", "true", "True")
             if ok and resp.get("callbackURL"):
                 return await self._async_honor_finish(resp)
 
             if self._honor.needs_sms_verification(resp) or _looks_like_sms_gate(resp):
-                targets = self._honor.parse_verify_targets(resp)
-                if targets:
-                    t0 = targets[0]
-                    self._verify_user_account = str(
-                        t0.get("userAccount")
-                        or t0.get("name")
-                        or t0.get("account")
-                        or self._honor_account
-                    )
-                    self._verify_account_type = str(
-                        t0.get("accountType") or t0.get("authAccountType") or "2"
-                    )
-                else:
-                    self._verify_user_account = self._honor_account
-                    self._verify_account_type = "2"
-                sms_resp = await asyncio.to_thread(
-                    self._honor.request_sms_code,
-                    self._verify_user_account or self._honor_account,
-                    calling_code=self._honor_calling_code,
-                    captcha_validate=self._captcha_validate or None,
-                    captcha_trans_no=self._captcha_trans_no or None,
-                )
-                if str(sms_resp.get("isSuccess")) not in ("1", "true", "True"):
-                    _LOGGER.warning("getSMSAuthCode: %s", sms_resp)
-                return await self.async_step_honor_sms()
+                return await self._async_honor_enter_sms(resp)
 
             raise HonorIdError(
-                resp.get("errorDesc") or "remoteLogin failed",
+                resp.get("errorDesc")
+                or f"remoteLogin failed (keys={list(resp.keys())})",
                 error_code=str(resp.get("errorCode") or ""),
                 data=resp,
             )
         except HonorIdError as err:
-            _LOGGER.warning("Honor password login failed: %s", err)
+            _LOGGER.warning(
+                "Honor password login failed: %s data=%s",
+                err,
+                getattr(err, "data", None),
+            )
             if err.error_code in {"70002082"} or "captcha" in str(err).lower():
                 return await self._async_restart_honor_captcha()
-            if self._honor and self._honor.needs_sms_verification(err.data):
-                return await self.async_step_honor_sms()
+            if self._honor and (
+                self._honor.needs_sms_verification(err.data)
+                or _looks_like_sms_gate(err.data)
+            ):
+                return await self._async_honor_enter_sms(err.data)
             return self.async_show_form(
                 step_id="honor",
                 data_schema=vol.Schema(
@@ -364,7 +351,50 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }
                 ),
                 errors={"base": _classify_honor_error(err)},
+                description_placeholders={"error_detail": _error_detail(err)},
             )
+
+    async def _async_honor_enter_sms(self, resp: dict[str, Any]) -> FlowResult:
+        """Password OK → SMS 2FA. Request code if Honor has not sent it yet."""
+        assert self._honor is not None
+        if resp.get("pageToken"):
+            self._honor.page_token = str(resp["pageToken"])
+
+        targets = self._honor.parse_verify_targets(resp)
+        if targets:
+            t0 = targets[0]
+            raw_name = str(
+                t0.get("userAccount")
+                or t0.get("name")
+                or t0.get("account")
+                or self._honor_account
+            )
+            # Honor may return masked "007890******29" — keep original login for SMS API
+            self._verify_user_account = (
+                self._honor_account if "*" in raw_name else raw_name
+            )
+            self._verify_account_type = str(
+                t0.get("accountType") or t0.get("authAccountType") or "2"
+            )
+            already_sent = int(t0.get("sent") or 0) == 1
+        else:
+            self._verify_user_account = self._honor_account
+            self._verify_account_type = "2"
+            already_sent = False
+
+        if not already_sent:
+            sms_resp = await asyncio.to_thread(
+                self._honor.request_sms_code,
+                self._verify_user_account or self._honor_account,
+                calling_code=self._honor_calling_code,
+                captcha_validate=self._captcha_validate or None,
+                captcha_trans_no=self._captcha_trans_no or None,
+            )
+            if sms_resp.get("pageToken"):
+                self._honor.page_token = str(sms_resp["pageToken"])
+            if str(sms_resp.get("isSuccess")) not in ("1", "true", "True"):
+                _LOGGER.warning("getSMSAuthCode: %s", sms_resp)
+        return await self.async_step_honor_sms()
 
     async def async_step_honor_sms(
         self, user_input: dict[str, Any] | None = None
@@ -865,6 +895,12 @@ class HonorRobotOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
 
 def _looks_like_sms_gate(resp: dict[str, Any]) -> bool:
     """Extra heuristics when Honor asks for SMS after password."""
+    if resp.get("authCodeSentList") or resp.get("twoFactorList") or resp.get(
+        "verifyAccountList"
+    ):
+        return True
+    if resp.get("pageToken") and not resp.get("callbackURL") and resp.get("riskFlag"):
+        return True
     code = str(resp.get("errorCode") or "")
     # Common “need second factor / risk / verify” families
     if code.startswith("70002") or code in {"11000400", "10002083", "70008800"}:

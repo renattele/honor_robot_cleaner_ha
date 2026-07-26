@@ -596,6 +596,17 @@ class HonorIdClient:
 
     def needs_sms_verification(self, resp: dict[str, Any]) -> bool:
         """Heuristic: password accepted but SMS / 2FA required."""
+        if not resp:
+            return False
+        # Honor often returns this list (even with isSuccess!=1) when SMS 2FA is next
+        if resp.get("authCodeSentList") or resp.get("twoFactorList") or resp.get(
+            "verifyAccountList"
+        ):
+            return True
+        if resp.get("isDoubleVerification") or resp.get("riskFlag"):
+            # riskFlag alone is weak; require pageToken or SMS list above
+            if resp.get("pageToken") and not resp.get("callbackURL"):
+                return True
         code = str(resp.get("errorCode") or "")
         if code in {
             "70002402",
@@ -605,17 +616,18 @@ class HonorIdClient:
         }:
             return True
         desc = str(resp.get("errorDesc") or "")
-        if "twoFactor" in desc or "DoubleVerification" in desc:
+        if "twoFactor" in desc or "DoubleVerification" in desc or "authCodeSent" in desc:
             return True
-        # Some responses put lists on success-ish payloads
-        if resp.get("twoFactorList") or resp.get("verifyAccountList"):
-            return True
-        # isSuccess=0 with auth dialog hints
+        # isSuccess=0 with auth dialog hints embedded in errorDesc JSON
         try:
             ed = resp.get("errorDesc")
             if isinstance(ed, str) and ed.strip().startswith("{"):
                 parsed = json.loads(ed)
-                if parsed.get("twoFactorList") or parsed.get("isDoubleVerification"):
+                if (
+                    parsed.get("twoFactorList")
+                    or parsed.get("isDoubleVerification")
+                    or parsed.get("authCodeSentList")
+                ):
                     return True
         except Exception:  # noqa: BLE001
             pass

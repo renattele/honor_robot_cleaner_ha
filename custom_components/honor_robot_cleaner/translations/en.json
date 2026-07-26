@@ -11,7 +11,7 @@
       },
       "honor": {
         "title": "Honor AI Space login",
-        "description": "Same credentials as Honor ID / AI Space. Robot thing_name is discovered from the cloud after login. Honor session cookies are stored for automatic JWT refresh.",
+        "description": "Same credentials as Honor ID / AI Space. Robot thing_name is discovered from the cloud after login. Honor session cookies are stored for automatic JWT refresh.\n\n{error_detail}",
         "data": {
           "account": "Phone",
           "password": "Honor ID password",

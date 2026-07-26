@@ -11,7 +11,7 @@
       },
       "honor": {
         "title": "Вход Honor AI Space",
-        "description": "Те же логин и пароль, что у Honor ID. Robot thing_name подтянется сам из облака после входа. Сессия Honor сохраняется для автообновления JWT.",
+        "description": "Те же логин и пароль, что у Honor ID. Robot thing_name подтянется сам из облака после входа. Сессия Honor сохраняется для автообновления JWT.\n\n{error_detail}",
         "data": {
           "account": "Телефон",
           "password": "Пароль Honor ID",
