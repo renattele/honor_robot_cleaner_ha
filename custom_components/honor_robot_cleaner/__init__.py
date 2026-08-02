@@ -120,6 +120,32 @@ def _persist_client_session(entry: ConfigEntry, client: GritApiClient) -> dict:
     return data
 
 
+def async_persist_client_session(
+    hass: HomeAssistant, entry: ConfigEntry, client: GritApiClient
+) -> None:
+    """Write refreshed token / Honor session back to the config entry."""
+    hass.config_entries.async_update_entry(
+        entry, data=_persist_client_session(entry, client)
+    )
+    client.credentials_dirty = False
+
+
+async def async_start_reauth_once(
+    hass: HomeAssistant, entry: ConfigEntry, err: BaseException
+) -> None:
+    """Ask the user to re-login when Honor SSO is irrecoverably expired."""
+    store = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
+    if store.get("reauth_started"):
+        return
+    store["reauth_started"] = True
+    _LOGGER.error(
+        "Honor session requires reauthentication for %s: %s",
+        entry.title,
+        err,
+    )
+    entry.async_start_reauth(hass)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
     from .http_captcha import async_register_captcha_views
@@ -145,9 +171,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         refreshed = await client.async_ensure_token()
         if refreshed:
-            hass.config_entries.async_update_entry(
-                entry, data=_persist_client_session(entry, client)
-            )
+            async_persist_client_session(hass, entry, client)
     except Exception:  # noqa: BLE001
         _LOGGER.warning(
             "Initial token refresh skipped/failed; will retry on poll",
@@ -162,6 +186,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "live_map": {},
         "map": {},
+        "reauth_started": False,
     }
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = store
 
@@ -247,11 +272,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             hass.bus.async_fire(f"{DOMAIN}_map_update", {"entry_id": entry.entry_id})
 
+    async def _on_credentials_updated() -> None:
+        store["reauth_started"] = False
+        async_persist_client_session(hass, entry, client)
+
+    async def _on_reauth_required(err: BaseException) -> None:
+        await async_start_reauth_once(hass, entry, err)
+
     wss = GritWssClient(
         client,
         on_status=_on_status,
         on_map=_on_map,
         on_zone=_on_zone,
+        on_credentials_updated=_on_credentials_updated,
+        on_reauth_required=_on_reauth_required,
         wss_url=client.resolve_wss_url(),
     )
     store["wss"] = wss

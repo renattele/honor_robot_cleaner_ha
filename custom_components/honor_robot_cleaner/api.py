@@ -39,6 +39,7 @@ from .const import (
     DEFAULT_CALLING_CODE,
     DEFAULT_LANGUAGE,
     DEFAULT_REGION,
+    HONOR_SESSION_KEEPALIVE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,9 +48,29 @@ _LOGGER = logging.getLogger(__name__)
 class GritApiError(Exception):
     """API returned a non-success payload or transport failed."""
 
-    def __init__(self, message: str, *, code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int | None = None,
+        reauth_required: bool = False,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.reauth_required = reauth_required
+
+
+def is_honor_session_error(err: BaseException) -> bool:
+    """True when Honor SSO cookies are dead and interactive reauth is needed."""
+    if isinstance(err, GritApiError) and getattr(err, "reauth_required", False):
+        return True
+    msg = str(err).lower()
+    return (
+        "honor session expired" in msg
+        or "no honor session" in msg
+        or "reconfigure the integration" in msg
+        or "reauth required" in msg
+    )
 
 
 def base_url_for_calling_code(calling_code: str) -> str:
@@ -148,6 +169,8 @@ class GritApiClient:
         self.wss_url = (wss_url or "").strip()
         self.timeout = timeout
         self.sync_token_expiry()
+        self._token_lock = asyncio.Lock()
+        self.credentials_dirty = False
 
     def sync_token_expiry(self) -> None:
         """Fill ``token_expires_at`` from JWT when missing or stale."""
@@ -461,8 +484,28 @@ class GritApiClient:
         if not self.token:
             return True
         if self.token_expires_at is None:
-            return False
+            # Unknown expiry: refresh when we have a renew path (Honor/password).
+            mode = self.auth_mode or AUTH_MODE_TOKEN
+            return bool(
+                self.honor_session
+                or mode == AUTH_MODE_HONOR
+                or (mode == AUTH_MODE_PASSWORD and self.account and self.password)
+            )
         return time.time() >= (float(self.token_expires_at) - skew)
+
+    def honor_session_needs_keepalive(self) -> bool:
+        """True when Honor SSO cookies should be touched before they go stale."""
+        mode = self.auth_mode or AUTH_MODE_TOKEN
+        if mode != AUTH_MODE_HONOR and not self.honor_session:
+            return False
+        if not self.honor_session:
+            return False
+        exported = self.honor_session.get("exported_at")
+        try:
+            age = time.time() - float(exported or 0)
+        except (TypeError, ValueError):
+            return True
+        return age >= HONOR_SESSION_KEEPALIVE
 
     async def async_refresh_honor_session(self) -> bool:
         """Silent Honor SSO → new auth_code → honor_card_login (no phone/adb)."""
@@ -471,7 +514,8 @@ class GritApiClient:
         if not self.honor_session:
             raise GritApiError(
                 "No Honor session stored. Re-add the integration via "
-                "Honor AI Space login (phone + password + SMS)."
+                "Honor AI Space login (phone + password + SMS).",
+                reauth_required=True,
             )
         if not self.device_id:
             raise GritApiError("device_id required for Honor token refresh")
@@ -484,7 +528,7 @@ class GritApiClient:
         try:
             auth_code, session = await asyncio.to_thread(_silent)
         except HonorIdError as err:
-            raise GritApiError(str(err)) from err
+            raise GritApiError(str(err), reauth_required=True) from err
 
         self.honor_session = session
         await self.async_login_honor_auth_code(
@@ -496,41 +540,133 @@ class GritApiClient:
         )
         return True
 
+    async def async_relogin_honor_password(self) -> bool:
+        """Best-effort Honor password re-login when SSO cookies are dead.
+
+        Succeeds only when Honor does not require captcha or SMS. Otherwise
+        raises ``GritApiError`` with ``reauth_required=True``.
+        """
+        from .honor_id import HonorIdClient, HonorIdError
+
+        if not self.account or not self.password:
+            raise GritApiError(
+                "Honor session expired — reconfigure the integration "
+                "(phone + password + SMS once)",
+                reauth_required=True,
+            )
+        if not self.device_id:
+            raise GritApiError("device_id required for Honor token refresh")
+
+        account = self.account
+        password = self.password
+        calling = self.calling_code
+        language = self.language
+        honor_lang = "ru-ru" if (language or "").startswith("ru") else "en-us"
+        country = "ru" if calling == "007" else "ru"
+
+        def _password_login() -> tuple[str, dict]:
+            hid = HonorIdClient(lang=honor_lang, country_code=country)
+            hid.bootstrap()
+            challenge = hid.prepare_captcha("remoteLogin")
+            needs_captcha = bool(challenge.captcha_id) and challenge.captcha_type not in (
+                -1,
+            )
+            if needs_captcha:
+                raise HonorIdError(
+                    "Honor captcha required — reconfigure the integration "
+                    "(phone + password + SMS once)"
+                )
+            resp = hid.login_password(
+                account,
+                password,
+                captcha_trans_no=challenge.captcha_trans_no or None,
+            )
+            if hid.needs_sms_verification(resp):
+                raise HonorIdError(
+                    "Honor SMS required — reconfigure the integration "
+                    "(phone + password + SMS once)"
+                )
+            if str(resp.get("isSuccess")) not in ("1", "true", "True"):
+                raise HonorIdError(
+                    resp.get("errorDesc") or "Honor password login failed",
+                    error_code=str(resp.get("errorCode") or ""),
+                    data=resp,
+                )
+            result = hid.extract_auth_code(resp)
+            return result.auth_code, hid.export_session()
+
+        try:
+            auth_code, session = await asyncio.to_thread(_password_login)
+        except HonorIdError as err:
+            raise GritApiError(str(err), reauth_required=True) from err
+
+        self.honor_session = session
+        await self.async_login_honor_auth_code(
+            auth_code,
+            device_id=self.device_id,
+            sub_type=self.sub_type,
+            calling_code=calling,
+            language=language,
+        )
+        _LOGGER.info("Honor password re-login succeeded (no captcha/SMS)")
+        return True
+
     async def async_ensure_token(
         self, skew: int = 600, *, force: bool = False
     ) -> bool:
-        """Refresh JWT when missing/expiring. Returns True if refreshed."""
-        if not force and not self.token_needs_refresh(skew):
-            return False
+        """Refresh JWT when missing/expiring/keepalive. Returns True if refreshed."""
+        async with self._token_lock:
+            needs = force or self.token_needs_refresh(skew)
+            keepalive = (not needs) and self.honor_session_needs_keepalive()
+            if not needs and not keepalive:
+                return False
 
-        mode = self.auth_mode or AUTH_MODE_TOKEN
-        _LOGGER.info(
-            "Refreshing Grit token (mode=%s, honor_session=%s)",
-            mode,
-            "yes" if self.honor_session else "no",
-        )
-
-        if mode == AUTH_MODE_PASSWORD and self.account and self.password:
-            await self.async_login_password(
-                self.account,
-                self.password,
-                calling_code=self.calling_code,
-                language=self.language,
-                base_url=self.base_url,
+            mode = self.auth_mode or AUTH_MODE_TOKEN
+            _LOGGER.info(
+                "Refreshing Grit token (mode=%s, honor_session=%s, force=%s, keepalive=%s)",
+                mode,
+                "yes" if self.honor_session else "no",
+                force,
+                keepalive,
             )
-            return True
 
-        if mode == AUTH_MODE_HONOR or self.honor_session:
-            await self.async_refresh_honor_session()
-            return True
+            if mode == AUTH_MODE_PASSWORD and self.account and self.password:
+                await self.async_login_password(
+                    self.account,
+                    self.password,
+                    calling_code=self.calling_code,
+                    language=self.language,
+                    base_url=self.base_url,
+                )
+                self.credentials_dirty = True
+                return True
 
-        if mode == AUTH_MODE_PASSWORD:
-            raise GritApiError("Password missing for token refresh")
+            if mode == AUTH_MODE_HONOR or self.honor_session:
+                try:
+                    await self.async_refresh_honor_session()
+                    self.credentials_dirty = True
+                    return True
+                except GritApiError as err:
+                    if not is_honor_session_error(err):
+                        raise
+                    if self.account and self.password:
+                        _LOGGER.warning(
+                            "Honor silent refresh failed (%s); trying password re-login",
+                            err,
+                        )
+                        await self.async_relogin_honor_password()
+                        self.credentials_dirty = True
+                        return True
+                    raise
 
-        raise GritApiError(
-            "Token expired. Use Honor AI Space login (stores a refreshable "
-            "Honor session) or YuGong password login."
-        )
+            if mode == AUTH_MODE_PASSWORD:
+                raise GritApiError("Password missing for token refresh")
+
+            raise GritApiError(
+                "Token expired. Use Honor AI Space login (stores a refreshable "
+                "Honor session) or YuGong password login.",
+                reauth_required=True,
+            )
 
     async def async_request(self, body: dict[str, Any]) -> dict[str, Any]:
         try:

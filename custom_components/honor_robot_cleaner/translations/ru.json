@@ -34,6 +34,10 @@
       "honor_after_captcha": {
         "title": "Вход…",
         "description": "Капча принята, выполняется вход в Honor / Grit."
+      },
+      "reauth_confirm": {
+        "title": "Повторный вход Honor Robot Cleaner",
+        "description": "Сессия Honor SSO истекла для {account}. Войди снова (капча + SMS один раз), чтобы обновить обновляемую сессию."
       }
     },
     "error": {
@@ -50,6 +54,7 @@
     "abort": {
       "already_configured": "Этот робот уже добавлен",
       "no_devices": "На аккаунте нет роботов",
+      "reauth_successful": "Повторный вход выполнен",
       "unknown": "Не удалось продолжить после капчи. Начни добавление заново."
     }
   },

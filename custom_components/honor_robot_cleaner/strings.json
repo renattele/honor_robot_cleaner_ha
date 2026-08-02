@@ -34,6 +34,10 @@
       "honor_after_captcha": {
         "title": "Signing in…",
         "description": "Captcha accepted, signing into Honor / Grit."
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Honor Robot Cleaner",
+        "description": "Honor SSO session expired for {account}. Sign in again (captcha + SMS once) to renew the refreshable session."
       }
     },
     "error": {
@@ -50,6 +54,7 @@
     "abort": {
       "already_configured": "This robot is already configured",
       "no_devices": "No robots found on this account",
+      "reauth_successful": "Re-authentication successful",
       "unknown": "Could not continue after captcha. Start setup again."
     }
   },

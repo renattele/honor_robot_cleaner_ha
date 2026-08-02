@@ -149,11 +149,47 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._device_id = ""
         self._captcha_url = ""
         self._honor_session: dict = {}
+        self._reauth_entry_id: str | None = None
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         return HonorRobotOptionsFlow(config_entry)
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
+        """Triggered when Honor SSO cookies are dead."""
+        self._reauth_entry_id = self.context.get("entry_id")
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Confirm re-login; reuse Honor AI Space captcha + SMS flow."""
+        entry = None
+        if self._reauth_entry_id:
+            entry = self.hass.config_entries.async_get_entry(self._reauth_entry_id)
+        if entry is not None:
+            data = {**entry.data, **entry.options}
+            self._honor_account = str(data.get(CONF_ACCOUNT) or "")
+            self._honor_password = str(data.get(CONF_PASSWORD) or "")
+            self._honor_calling_code = str(
+                data.get(CONF_CALLING_CODE) or DEFAULT_CALLING_CODE
+            )
+            self._honor_language = str(data.get(CONF_LANGUAGE) or DEFAULT_LANGUAGE)
+            self._honor_sub_type = str(data.get(CONF_SUB_TYPE) or DEFAULT_SUB_TYPE)
+            self._device_id = str(data.get(CONF_DEVICE_ID) or "")
+            self._name = str(data.get(CONF_NAME) or entry.title or DEFAULT_NAME)
+            self._auth_mode = AUTH_MODE_HONOR
+
+        if user_input is not None:
+            return await self.async_step_honor()
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            description_placeholders={
+                "account": self._honor_account or "…",
+            },
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -221,14 +257,19 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_ACCOUNT): str,
-                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                vol.Required(
+                    CONF_ACCOUNT, default=self._honor_account or vol.UNDEFINED
+                ): str,
+                vol.Required(
+                    CONF_PASSWORD, default=self._honor_password or vol.UNDEFINED
+                ): selector.TextSelector(
                     selector.TextSelectorConfig(
                         type=selector.TextSelectorType.PASSWORD
                     )
                 ),
                 vol.Required(
-                    CONF_CALLING_CODE, default=DEFAULT_CALLING_CODE
+                    CONF_CALLING_CODE,
+                    default=self._honor_calling_code or DEFAULT_CALLING_CODE,
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
@@ -238,8 +279,13 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
-                vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): str,
-                vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
+                vol.Optional(
+                    CONF_LANGUAGE,
+                    default=self._honor_language or DEFAULT_LANGUAGE,
+                ): str,
+                vol.Optional(
+                    CONF_NAME, default=self._name or DEFAULT_NAME
+                ): str,
             }
         )
         return self.async_show_form(
@@ -738,7 +784,8 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         device_id = device["thing_name"]
         sub_type = device.get("sub_type") or DEFAULT_SUB_TYPE
         await self.async_set_unique_id(device_id)
-        self._abort_if_unique_id_configured()
+        if not self._reauth_entry_id:
+            self._abort_if_unique_id_configured()
 
         self._client.device_id = device_id
         self._client.sub_type = sub_type
@@ -759,6 +806,10 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             or getattr(self._client, "honor_session", {})
             or {},
         }
+        if self._client.wss_url:
+            from .const import CONF_WSS_URL
+
+            data[CONF_WSS_URL] = self._client.wss_url
         if self._auth_mode in (AUTH_MODE_PASSWORD, AUTH_MODE_HONOR):
             data.update(
                 {
@@ -769,6 +820,20 @@ class HonorRobotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_LANGUAGE: self._client.language,
                 }
             )
+
+        if self._reauth_entry_id:
+            entry = self.hass.config_entries.async_get_entry(self._reauth_entry_id)
+            if entry is None:
+                return self.async_abort(reason="unknown")
+            merged = {**entry.data, **data}
+            self.hass.config_entries.async_update_entry(
+                entry, data=merged, title=title
+            )
+            store = self.hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
+            store["reauth_started"] = False
+            await self.hass.config_entries.async_reload(entry.entry_id)
+            return self.async_abort(reason="reauth_successful")
+
         return self.async_create_entry(title=title, data=data)
 
 

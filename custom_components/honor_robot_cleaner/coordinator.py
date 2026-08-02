@@ -10,18 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import GritApiClient, GritApiError
-from .const import (
-    CONF_AUTH_MODE,
-    CONF_BASE_URL,
-    CONF_HONOR_SESSION,
-    CONF_REGION,
-    CONF_TOKEN,
-    CONF_TOKEN_EXPIRES_AT,
-    DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
-    TOKEN_REFRESH_SKEW,
-)
+from .api import GritApiClient, GritApiError, is_honor_session_error
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, TOKEN_REFRESH_SKEW
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,21 +36,16 @@ class HonorRobotCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
+        from . import async_persist_client_session, async_start_reauth_once
+
         try:
             refreshed = await self.client.async_ensure_token(TOKEN_REFRESH_SKEW)
-            if refreshed:
-                data = {
-                    **self.entry.data,
-                    CONF_TOKEN: self.client.token,
-                    CONF_REGION: self.client.region,
-                    CONF_BASE_URL: self.client.base_url,
-                    CONF_TOKEN_EXPIRES_AT: self.client.token_expires_at,
-                    CONF_AUTH_MODE: self.client.auth_mode
-                    or self.entry.data.get(CONF_AUTH_MODE),
-                }
-                if self.client.honor_session:
-                    data[CONF_HONOR_SESSION] = self.client.honor_session
-                self.hass.config_entries.async_update_entry(self.entry, data=data)
+            if refreshed or self.client.credentials_dirty:
+                store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id) or {}
+                store["reauth_started"] = False
+                async_persist_client_session(self.hass, self.entry, self.client)
             return await self.client.async_get_status()
         except GritApiError as err:
+            if is_honor_session_error(err):
+                await async_start_reauth_once(self.hass, self.entry, err)
             raise UpdateFailed(str(err)) from err

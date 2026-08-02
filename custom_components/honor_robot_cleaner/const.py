@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "honor_robot_cleaner"
-INTEGRATION_VERSION = "1.4.6"
+INTEGRATION_VERSION = "1.4.7"
 
 CONF_TOKEN = "token"
 CONF_DEVICE_ID = "device_id"
@@ -42,6 +42,8 @@ CLIENT_ID = "yugong_app"
 
 # Refresh this many seconds before JWT expiry
 TOKEN_REFRESH_SKEW = 600
+# Proactively renew Honor SSO cookies this often (even if JWT still valid)
+HONOR_SESSION_KEEPALIVE = 4 * 3600
 
 CMD_START = "AutoClean"
 CMD_PAUSE = "Pause"
