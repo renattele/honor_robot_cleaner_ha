@@ -171,6 +171,7 @@ class GritApiClient:
         self.sync_token_expiry()
         self._token_lock = asyncio.Lock()
         self.credentials_dirty = False
+        self.reauth_required = False
 
     def sync_token_expiry(self) -> None:
         """Fill ``token_expires_at`` from JWT when missing or stale."""
@@ -616,6 +617,13 @@ class GritApiClient:
     ) -> bool:
         """Refresh JWT when missing/expiring/keepalive. Returns True if refreshed."""
         async with self._token_lock:
+            if self.reauth_required and not force:
+                raise GritApiError(
+                    "Honor session expired — reconfigure the integration "
+                    "(phone + password + SMS once)",
+                    reauth_required=True,
+                )
+
             needs = force or self.token_needs_refresh(skew)
             keepalive = (not needs) and self.honor_session_needs_keepalive()
             if not needs and not keepalive:
@@ -639,29 +647,38 @@ class GritApiClient:
                     base_url=self.base_url,
                 )
                 self.credentials_dirty = True
+                self.reauth_required = False
                 return True
 
             if mode == AUTH_MODE_HONOR or self.honor_session:
                 try:
                     await self.async_refresh_honor_session()
                     self.credentials_dirty = True
+                    self.reauth_required = False
                     return True
                 except GritApiError as err:
                     if not is_honor_session_error(err):
                         raise
-                    if self.account and self.password:
+                    if self.account and self.password and not self.reauth_required:
                         _LOGGER.warning(
                             "Honor silent refresh failed (%s); trying password re-login",
                             err,
                         )
-                        await self.async_relogin_honor_password()
-                        self.credentials_dirty = True
-                        return True
+                        try:
+                            await self.async_relogin_honor_password()
+                            self.credentials_dirty = True
+                            self.reauth_required = False
+                            return True
+                        except GritApiError as relogin_err:
+                            self.reauth_required = True
+                            raise relogin_err from err
+                    self.reauth_required = True
                     raise
 
             if mode == AUTH_MODE_PASSWORD:
                 raise GritApiError("Password missing for token refresh")
 
+            self.reauth_required = True
             raise GritApiError(
                 "Token expired. Use Honor AI Space login (stores a refreshable "
                 "Honor session) or YuGong password login.",
