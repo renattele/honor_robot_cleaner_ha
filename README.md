@@ -1,10 +1,6 @@
 # My HACS
 
 <p align="center">
-  <img src="https://git.lxbx.ru/renattele/my_hacs/raw/branch/main/images/logo.png" alt="Logo" width="112"/>
-</p>
-
-<p align="center">
   Персональный репозиторий кастомных интеграций для Home Assistant<br/>
   <sub>Несколько интеграций в одном репозитории · установка через HACS или вручную</sub>
 </p>
