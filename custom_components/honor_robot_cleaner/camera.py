@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import GritApiClient, GritApiError
 from .const import ATTR_MAP_ID, ATTR_ROOMS, DOMAIN
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry
+from .entity import device_info_for_entry, robot_is_online
 from .map_parser import ParsedMap, parse_map_data, render_map_png
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,6 +183,7 @@ class HonorMapCamera(CoordinatorEntity[HonorRobotCoordinator], Camera):
         return {
             ATTR_MAP_ID: self._map_id or None,
             ATTR_ROOMS: rooms,
+            "robot_online": robot_is_online(self.coordinator.data),
             "wss_connected": bool(wss and getattr(wss, "connected", False)),
             "source": "wss" if (self._store.get("live_map") or {}).get("image") else "http",
         }

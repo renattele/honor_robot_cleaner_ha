@@ -709,6 +709,8 @@ class GritApiClient:
             raise
 
     async def async_get_status(self) -> dict[str, Any]:
+        from .entity import normalize_thing_status
+
         payload = await self.async_request(
             {
                 "opt": "sync_thing_status",
@@ -720,7 +722,7 @@ class GritApiClient:
         status = data.get("thing_status") or {}
         if not status:
             raise GritApiError("Empty thing_status in response")
-        return status
+        return normalize_thing_status(status)
 
     async def async_list_devices(self) -> list[dict[str, Any]]:
         payload = await self.async_request({"opt": "user_thing_list_get"})

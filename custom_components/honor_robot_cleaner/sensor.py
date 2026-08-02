@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry, nested_hour, status_bool
+from .entity import device_info_for_entry, nested_hour, robot_is_online
 
 
 async def async_setup_entry(
@@ -37,7 +37,6 @@ async def async_setup_entry(
             HonorRobotCleanTimeSensor(coordinator, device_id, device_info),
             HonorRobotErrorSensor(coordinator, device_id, device_info),
             HonorRobotFirmwareSensor(coordinator, device_id, device_info),
-            HonorRobotConnectedSensor(coordinator, device_id, device_info),
             HonorRobotTextSensor(
                 coordinator,
                 device_id,
@@ -106,6 +105,8 @@ async def async_setup_entry(
 
 class HonorRobotBaseSensor(CoordinatorEntity[HonorRobotCoordinator], SensorEntity):
     _attr_has_entity_name = True
+    # Most status sensors stay readable while offline; controls go unavailable.
+    _available_when_offline = True
 
     def __init__(
         self,
@@ -119,6 +120,12 @@ class HonorRobotBaseSensor(CoordinatorEntity[HonorRobotCoordinator], SensorEntit
         self._attr_unique_id = f"{device_id}_{key}"
         self._attr_device_info = device_info
 
+    @property
+    def available(self) -> bool:
+        if self._available_when_offline:
+            return super().available
+        return super().available and robot_is_online(self.coordinator.data)
+
 
 class HonorRobotBatterySensor(HonorRobotBaseSensor):
     _attr_name = "Battery"
@@ -131,6 +138,8 @@ class HonorRobotBatterySensor(HonorRobotBaseSensor):
 
     @property
     def native_value(self):
+        if not robot_is_online(self.coordinator.data):
+            return None
         value = (self.coordinator.data or {}).get("battery_level")
         try:
             return int(value) if value is not None else None
@@ -147,6 +156,8 @@ class HonorRobotStatusSensor(HonorRobotBaseSensor):
 
     @property
     def native_value(self):
+        if not robot_is_online(self.coordinator.data):
+            return "offline"
         return (self.coordinator.data or {}).get("working_status")
 
 
@@ -201,18 +212,6 @@ class HonorRobotFirmwareSensor(HonorRobotBaseSensor):
     @property
     def native_value(self):
         return (self.coordinator.data or {}).get("vendor_firmware_version")
-
-
-class HonorRobotConnectedSensor(HonorRobotBaseSensor):
-    _attr_name = "Connected"
-    _attr_icon = "mdi:lan-connect"
-
-    def __init__(self, coordinator, device_id, device_info) -> None:
-        super().__init__(coordinator, device_id, device_info, "connected")
-
-    @property
-    def native_value(self):
-        return "on" if status_bool(self.coordinator.data or {}, "connected") else "off"
 
 
 class HonorRobotTextSensor(HonorRobotBaseSensor):

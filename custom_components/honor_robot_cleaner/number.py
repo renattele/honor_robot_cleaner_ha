@@ -6,12 +6,11 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import GritApiClient
 from .const import DOMAIN
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry
+from .entity import HonorRobotEntity, device_info_for_entry
 
 
 async def async_setup_entry(
@@ -32,7 +31,7 @@ async def async_setup_entry(
     )
 
 
-class HonorVolumeNumber(CoordinatorEntity[HonorRobotCoordinator], NumberEntity):
+class HonorVolumeNumber(HonorRobotEntity, NumberEntity):
     _attr_has_entity_name = True
     _attr_name = "Volume"
     _attr_icon = "mdi:volume-high"

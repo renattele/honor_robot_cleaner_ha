@@ -9,12 +9,11 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import GritApiClient, GritApiError
 from .const import DOMAIN, WATER_LEVELS
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry
+from .entity import HonorRobotEntity, device_info_for_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ async def async_setup_entry(
 
 
 class HonorWaterLevelSelect(
-    CoordinatorEntity[HonorRobotCoordinator], SelectEntity
+    HonorRobotEntity, SelectEntity
 ):
     _attr_has_entity_name = True
     _attr_name = "Water level"
@@ -69,7 +68,7 @@ class HonorWaterLevelSelect(
         await self.coordinator.async_request_refresh()
 
 
-class HonorMapSelect(CoordinatorEntity[HonorRobotCoordinator], SelectEntity):
+class HonorMapSelect(HonorRobotEntity, SelectEntity):
     _attr_has_entity_name = True
     _attr_name = "Active map"
     _attr_icon = "mdi:map"

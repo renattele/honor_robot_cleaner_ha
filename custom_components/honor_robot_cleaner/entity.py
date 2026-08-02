@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_NAME, DOMAIN
 from .coordinator import HonorRobotCoordinator
@@ -19,6 +20,20 @@ def device_info_for_entry(entry: ConfigEntry) -> dict[str, Any]:
         "manufacturer": "Honor / Grit",
         "model": entry.data.get("sub_type", "rob-01"),
     }
+
+
+def robot_is_online(status: dict[str, Any] | None) -> bool:
+    """Match Honor APK: online iff thing_status.connected equals \"true\"."""
+    if not status:
+        return False
+    val = status.get("connected")
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() == "true"
+    if isinstance(val, (int, float)):
+        return val == 1
+    return False
 
 
 def status_bool(status: dict[str, Any], key: str) -> bool:
@@ -38,3 +53,18 @@ def nested_hour(status: dict[str, Any], group: str, field: str) -> int | None:
         return int(raw.get(field))
     except (TypeError, ValueError):
         return None
+
+
+def normalize_thing_status(status: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy with connected normalized to bool."""
+    out = dict(status)
+    out["connected"] = robot_is_online(out)
+    return out
+
+
+class HonorRobotEntity(CoordinatorEntity[HonorRobotCoordinator]):
+    """Entity unavailable while the robot reports offline."""
+
+    @property
+    def available(self) -> bool:
+        return super().available and robot_is_online(self.coordinator.data)

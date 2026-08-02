@@ -45,6 +45,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.VACUUM,
+    Platform.BINARY_SENSOR,
     Platform.SENSOR,
     Platform.SELECT,
     Platform.NUMBER,
@@ -191,7 +192,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = store
 
     async def _on_status(status: dict) -> None:
-        coordinator.async_set_updated_data(status)
+        from .entity import normalize_thing_status
+
+        # Keep previous connected if a partial push omits it (stale "online" otherwise).
+        prev = coordinator.data or {}
+        merged = dict(status)
+        if "connected" not in merged and "connected" in prev:
+            merged["connected"] = prev["connected"]
+        coordinator.async_set_updated_data(normalize_thing_status(merged))
 
     _last_map_render = {"ts": 0.0}
 

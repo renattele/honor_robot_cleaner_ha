@@ -9,12 +9,11 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import GritApiClient
 from .const import DOMAIN
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry, status_bool
+from .entity import HonorRobotEntity, device_info_for_entry, status_bool
 
 
 async def async_setup_entry(
@@ -74,7 +73,7 @@ async def async_setup_entry(
     )
 
 
-class HonorBoolSwitch(CoordinatorEntity[HonorRobotCoordinator], SwitchEntity):
+class HonorBoolSwitch(HonorRobotEntity, SwitchEntity):
     _attr_has_entity_name = True
 
     def __init__(
@@ -111,7 +110,7 @@ class HonorBoolSwitch(CoordinatorEntity[HonorRobotCoordinator], SwitchEntity):
         await self.coordinator.async_request_refresh()
 
 
-class HonorDndSwitch(CoordinatorEntity[HonorRobotCoordinator], SwitchEntity):
+class HonorDndSwitch(HonorRobotEntity, SwitchEntity):
     _attr_has_entity_name = True
     _attr_name = "Do not disturb"
     _attr_icon = "mdi:minus-circle"

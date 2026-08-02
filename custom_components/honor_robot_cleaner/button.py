@@ -8,12 +8,11 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import GritApiClient
 from .const import DOMAIN
 from .coordinator import HonorRobotCoordinator
-from .entity import device_info_for_entry
+from .entity import HonorRobotEntity, device_info_for_entry
 
 
 async def async_setup_entry(
@@ -138,7 +137,7 @@ async def async_setup_entry(
     )
 
 
-class HonorActionButton(CoordinatorEntity[HonorRobotCoordinator], ButtonEntity):
+class HonorActionButton(HonorRobotEntity, ButtonEntity):
     _attr_has_entity_name = True
 
     def __init__(
