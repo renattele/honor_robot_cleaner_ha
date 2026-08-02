@@ -5,9 +5,9 @@
     "@renattele"
   ],
   "config_flow": true,
-  "documentation": "https://git.lxbx.ru/renattele/my_hacs",
+  "documentation": "https://github.com/renattele/honor_robot_cleaner_ha",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://git.lxbx.ru/renattele/my_hacs/issues",
+  "issue_tracker": "https://github.com/renattele/honor_robot_cleaner_ha/issues",
   "requirements": [
     "Pillow>=10.0.0"
   ],

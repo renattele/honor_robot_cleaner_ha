@@ -1,5 +1,5 @@
 {
-  "name": "My HACS",
+  "name": "Honor Robot Cleaner",
   "render_readme": true,
   "homeassistant": "2024.1.0"
 }
