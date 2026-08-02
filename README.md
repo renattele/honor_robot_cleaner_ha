@@ -49,3 +49,7 @@ Device ID при необходимости: AI Space → сведения об 
 <p align="center">
   <sub>Unofficial · not affiliated with Honor</sub>
 </p>
+
+---
+
+<sub>Source: synced from [my_hacs](https://git.lxbx.ru/renattele/my_hacs) monorepo.</sub>
